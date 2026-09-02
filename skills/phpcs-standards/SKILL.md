@@ -284,8 +284,9 @@ git diff --cached --name-only    # must contain only that module
 ```
 
 The MR description follows the team template; the collected UAT entries go
-under its **`### UAT manuelle`** heading, in French, as a checklist — every
-risky fix from Step 4, none dropped:
+under its **`### UAT manuelle`** heading, as a checklist — every risky fix from
+Step 4, none dropped. Write them in **the language the team writes its MRs in**
+(French in the examples below; the code and the commits stay English):
 
 ```markdown
 ### UAT manuelle

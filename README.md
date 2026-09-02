@@ -66,22 +66,37 @@ still have it installed, and `cim` will fail there.
 
 ## Installation
 
-```bash
-# 1. Add this directory as a local marketplace
-/plugin marketplace add ./
+From any Claude Code session:
 
-# 2. Install the plugin (user scope = available in every project)
+```
+/plugin marketplace add JMAILLY/claude-migration-skills
 /plugin install claude-migration-skills@migration-marketplace
-
-# 3. Reload the session's plugins
 /reload-plugins
 ```
 
-Check it took:
+Check it took — `claude-migration-skills` should be listed:
 
-```bash
-/plugin        # claude-migration-skills should be listed
 ```
+/plugin
+```
+
+The plugin installs at **user scope**, so the skills are available in every
+project.
+
+### Working on the skills themselves
+
+To edit the skills and have the changes apply with no reinstall, register your
+clone as a `directory` marketplace instead:
+
+```
+git clone https://github.com/JMAILLY/claude-migration-skills.git
+cd claude-migration-skills
+/plugin marketplace add ./
+/plugin install claude-migration-skills@migration-marketplace
+```
+
+A `directory` source reads the files in place; a `github` source works from a
+cached checkout that only refreshes on update.
 
 ## Usage
 

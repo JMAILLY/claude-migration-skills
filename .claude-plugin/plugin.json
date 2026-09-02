@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "claude-migration-skills",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Web migration/modernization skill pack for Dockerized, Makefile-driven projects. lando-to-docker sets up the upstream Docker Compose + Makefile dev environment (Traefik, PHP-FPM/Apache, MariaDB, Redis) that the other skills require. The Drupal 10 → 11 upgrade is orchestrated by the d11 skill, which delegates to three sub-skills that are also usable standalone: php-docker-upgrade (PHP 8.4/8.5+ bump in Docker), php-deprecations-audit (upgrade_status/rector/phpstan) and jquery-4-migration (jQuery 3 → 4). Plus the Gulp → Vite front build migration (gulp-to-vite), SCSS modernization with sass-migrator (sass-migrator), and a PHP_CodeSniffer setup/cleanup pass (phpcs-standards) that brings custom code to zero violations and records the manual UAT for every behaviour-changing fix. Per-step Git workflow (one Draft MR per step).",
   "author": {
     "name": "Julian Mailly"
