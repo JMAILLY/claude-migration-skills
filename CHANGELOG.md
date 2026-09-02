@@ -15,6 +15,18 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [1.0.1] — 2026-09-02
+
+### Fixed
+
+- **Installation instructions** assumed a local clone (`/plugin marketplace add
+  ./`), which is the contributor path, not the user path. The README now leads
+  with `/plugin marketplace add JMAILLY/claude-migration-skills` and keeps the
+  `directory`-source clone as a separate "working on the skills" section.
+- **`phpcs-standards`** said the manual-UAT entries go in the MR "in French".
+  They go in whatever language the team writes its merge requests in; the
+  French examples are labelled as such.
+
 ## [1.0.0] — 2026-09-02
 
 First public release. Eight skills for migrating and modernizing web projects
@@ -48,5 +60,6 @@ that are Dockerized and driven by a `Makefile`.
 - **`sass-migrator`** (any stack) — migration off deprecated Dart Sass syntax
   with a harness that proves the compiled CSS is byte-identical.
 
-[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/JMAILLY/claude-migration-skills/releases/tag/v1.0.0
