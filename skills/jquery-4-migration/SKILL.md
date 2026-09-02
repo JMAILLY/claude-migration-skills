@@ -69,7 +69,10 @@ Start with (A); remove the polyfill once `grep` confirms zero remaining usages.
 - `$.ajax`: `success`/`error`/`complete` → `.done()` / `.fail()` / `.always()` or promises.
 - `.bind()` / `.unbind()` / `.delegate()` / `.undelegate()` → `.on()` / `.off()`.
 - `.load()` / `.unload()` / `.error()` event shorthands → `.on('load'…)`.
-- `$.isEmptyObject`, `$.proxy`: still present but watch for removal.
+- `$.isEmptyObject`, `$.proxy`, `$.uniqueSort`: **still shipped by jQuery 4.0.0**
+  (`$.proxy` is deprecated, not removed). Verify in the core file rather than
+  assuming — `grep -n 'jQuery\.proxy = ' web/core/assets/vendor/jquery/jquery.js`.
+  A library that only calls these needs **no shim at all**.
 - `jQuery.Deferred`: behaviour aligned with native Promises.
 - `hover` pseudo-events → `mouseenter` / `mouseleave`.
 
@@ -143,10 +146,63 @@ grep -rn 'core/jquery' web/themes/custom/*/
 
 **Custom JS is not the only source of breakage.** Third-party libraries declared
 in theme `.libraries.yml` files (slick.js, lightboxes, accordions…) may also
-call removed APIs. Per library: check jQuery-4 compatibility → update if
-available → otherwise generate a **scoped local polyfill** (never pull in
-`core/jquery.migrate`, which re-adds the entire deprecated surface). Also replace
-external CDN references and any `core/modernizr` dependency (removed in D11).
+call removed APIs. Per library, in this order: **prove no compatible release
+exists** → update if one does → only then generate a **scoped local polyfill**
+(never pull in `core/jquery.migrate`, which re-adds the entire deprecated
+surface). Also replace external CDN references and any `core/modernizr`
+dependency (removed in D11).
+
+### Gate: prove no compatible release exists before writing a shim
+
+A shim is the fallback, never the first move — and **the npm registry is not the
+source of truth**. A package that looks abandoned there can have a live
+repository whose jQuery-4 fix ships as a git tag only. `npm view <pkg> version`
+returning a release from years ago proves nothing; it is the single most common
+way a project ends up maintaining a polyfill it never needed.
+
+Walk all four levels before concluding "no compatible version exists":
+
+```bash
+PKG=<npm-package>; REPO=<owner>/<repo>
+
+# 1. registry — what npm/yarn would actually install
+npm view "$PKG" version time.modified
+
+# 2. tags and releases — routinely ahead of the registry
+curl -s "https://api.github.com/repos/$REPO/tags?per_page=10"    | grep '"name"'
+curl -s "https://api.github.com/repos/$REPO/releases?per_page=5" | grep '"tag_name"\|"published_at"'
+
+# 3. default-branch HEAD — the fix may not be tagged yet
+curl -s "https://api.github.com/repos/$REPO/commits/HEAD" | grep -m1 '"date"'
+
+# 4. active forks — only when upstream is genuinely dead
+curl -s "https://api.github.com/repos/$REPO/forks?sort=stargazers&per_page=5" | grep '"full_name"'
+```
+
+Then **audit the candidate itself**, never its changelog: download it and rerun
+the token scan. Compatible means the token scan comes back empty of removed
+APIs — remaining hits on `$.proxy` / `$.isEmptyObject` / `$.uniqueSort` are fine,
+those still ship with jQuery 4.
+
+```bash
+V=<tag>
+curl -sSL -o /tmp/lib.js "https://cdn.jsdelivr.net/gh/$REPO@$V/<path>/lib.js"
+grep -oE '\.(type|isFunction|isArray|isWindow|isNumeric|trim|nodeName|parseJSON|now|unique|camelCase|bind|unbind|delegate|undelegate)\(' /tmp/lib.js | sort | uniq -c
+```
+
+Also diff the candidate against the pinned version to size the upgrade, and
+diff the pinned version against its own upstream release first — a vendored file
+that was patched locally makes the swap a merge, not a replacement:
+
+```bash
+curl -sSL -o /tmp/pinned.js "https://cdn.jsdelivr.net/gh/$REPO@<current-tag>/<path>/lib.js"
+diff /tmp/pinned.js <theme>/js/lib.js   # empty = stock, safe to replace outright
+diff /tmp/pinned.js /tmp/lib.js | head -100
+```
+
+Write the verdict down. "No compatible version exists" is a claim that belongs
+in the merge request with the four checks behind it, because it is the claim
+that justifies shipping a polyfill.
 
 **What the scoped shim contains.** For a bundled/abandoned plugin you cannot
 rewrite (slick, mCustomScrollbar…), re-add *only* the removed members it
