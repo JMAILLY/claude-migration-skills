@@ -15,6 +15,31 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-09-02
+
+### Added
+
+- **`jquery-4-migration`** — a **compatibility gate** that must be walked before
+  any polyfill is written. The npm registry is not the source of truth: a
+  package frozen for years there can have a live repository whose jQuery-4 fix
+  ships as a git tag only, so the skill now walks registry → tags/releases →
+  default-branch HEAD → active forks, audits the candidate file itself with the
+  token scan instead of trusting its changelog, and requires the "no compatible
+  version exists" verdict to be written into the merge request with its evidence.
+- **`jquery-4-migration`** — how to vendor a library from a git tag: why the
+  asset stays first-party rather than served from a CDN (privacy, aggregation,
+  cache partitioning, mutable refs), pinning to a tag or commit SHA, the
+  provenance header every vendored file carries, diffing the current copy
+  against its own upstream release to detect a local patch before swapping, and
+  updating every shipped copy including an unreferenced minified twin.
+
+### Fixed
+
+- **`jquery-4-migration`** said `$.isEmptyObject` and `$.proxy` were "still
+  present but watch for removal", which read as a reason to shim them. They are
+  shipped by jQuery 4.0.0 — `$.proxy` deprecated, not removed — alongside
+  `$.uniqueSort`. A library calling only these needs no shim at all.
+
 ## [1.0.1] — 2026-09-02
 
 ### Fixed
@@ -60,6 +85,7 @@ that are Dockerized and driven by a `Makefile`.
 - **`sass-migrator`** (any stack) — migration off deprecated Dart Sass syntax
   with a harness that proves the compiled CSS is byte-identical.
 
-[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/JMAILLY/claude-migration-skills/releases/tag/v1.0.0

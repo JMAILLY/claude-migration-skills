@@ -23,7 +23,9 @@ For each third-party library, check:
 
 - Does it declare `core/jquery` or `core/jquery.ui.*`?
 - Bundled locally (a `.min.js` in `vendor/`) or loaded from a CDN?
-- What version, and is a jQuery 4–compatible one available?
+- What version — and, per the **compatibility gate** in `SKILL.md`, is a
+  jQuery 4–compatible release available anywhere? Registry, git tags, releases,
+  default-branch HEAD, active forks. **Never conclude from npm alone.**
 
 ```bash
 # External CDN references (incompatible with Drupal CSP and jQuery 4)
@@ -38,12 +40,64 @@ grep -rn "http[s]\?://" web/themes/custom/*/*.libraries.yml
 
 | Situation | Action |
 |---|---|
-| jQuery 4–compatible version available | Update the local file to that version |
-| No compatible version, actively maintained | Add needed polyfills to a local `jquery.deprecated.functions.js` temporarily |
-| No compatible version, abandoned | Replace with an alternative or rewrite in vanilla JS |
+| Compatible release published on the registry | Bump the dependency, rebuild, drop the vendored copy if the build pipeline handles it |
+| **Compatible release exists as a git tag only** (registry stale) | **Vendor the file from that tag** with a provenance header — see below. No shim |
+| Compatible code on the default branch, untagged | Vendor it pinned to a **commit SHA**, never to a moving `master`/`main` ref |
+| Only a fork is compatible | Weigh the fork's activity against rewriting the feature; vendor the fork the same way |
+| No compatible version anywhere, still maintained | Scoped local `jquery.deprecated.functions.js`, and open an upstream issue |
+| No compatible version anywhere, abandoned | Replace with an alternative or rewrite in vanilla JS |
 | Loaded via CDN | Download locally and declare as a local asset |
 
+A stale registry is common enough to be the default suspicion, not the
+exception: publishing to npm is a manual step maintainers drop long before they
+stop merging fixes.
+
+### Vendoring a file from a git tag
+
+Keep it **first-party**, never a `type: external` CDN URL:
+
+- **Privacy** — a CDN sees every visitor's IP before any consent banner runs.
+- **Performance** — an extra DNS + TLS handshake to a third origin, and cache
+  partitioning (2020) killed the shared cross-site cache that used to justify it.
+- **Aggregation** — Drupal excludes external files from CSS/JS aggregation.
+- **Integrity** — a `@master` URL is mutable and a tag can be re-pushed; a
+  vendored file is pinned in git and shows up in review diffs.
+
+Before replacing a vendored file, diff it against its own upstream release: if
+it comes back empty the previous copy was stock and the swap is a clean
+replacement, otherwise someone patched it locally and you must port the patch.
+
+Head every vendored file so the next person knows where it came from:
+
+```javascript
+/*
+ * <library> - vendored third-party file, do not edit.
+ *
+ * Source:  https://github.com/<owner>/<repo> - tag <vX.Y.Z> (<short-sha>)
+ * Why not npm: the <pkg> package is still frozen at <old> on the registry;
+ * the <X.y> line is only published as git tags.
+ * Why not a CDN: keeps the asset first-party (GDPR), aggregatable by Drupal,
+ * and pinned in git.
+ *
+ * To upgrade: re-download <path> from the new tag and restore this header.
+ */
+```
+
+Update **every** copy of the library you ship, including a minified twin that
+nothing currently references — leaving a stale minified build next to an
+upgraded source is a trap for whoever later switches the `.libraries.yml` to it.
+
+Upgrading a library is not a free swap: read the upstream diff and list its
+behaviour changes as manual UAT steps in the merge request. Stylesheet changes
+that ship alongside can be left at the old version when they are out of scope —
+say so explicitly, in the merge request and not only in the code.
+
 ## 4. Generate a scoped local polyfill
+
+> Only reach this section once section 3's gate has been walked and written
+> down. A polyfill added because nobody looked past `npm view` is pure debt: it
+> outlives the reason it was written, and every library it is attached to keeps
+> a dependency that reviewers can no longer justify.
 
 When a library is not yet jQuery 4 compatible, **do not pull in
 `core/jquery.migrate`** (it re-adds the entire deprecated surface and silences

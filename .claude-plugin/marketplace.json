@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "migration-marketplace",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Local marketplace for web migration/modernization plugins.",
   "owner": {
     "name": "Julian Mailly"
@@ -11,7 +11,7 @@
       "name": "claude-migration-skills",
       "source": "./",
       "description": "Web migration/modernization skills for Dockerized, Makefile-driven projects: lando-to-docker sets up the Docker Compose + Makefile dev environment the others depend on; an orchestrated Drupal 10 → 11 upgrade (d11) delegating to php-docker-upgrade, php-deprecations-audit and jquery-4-migration (each usable standalone); the Gulp → Vite front build migration (gulp-to-vite); SCSS modernization with sass-migrator (sass-migrator); and a PHP_CodeSniffer setup/cleanup pass (phpcs-standards).",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "category": "development",
       "author": {
         "name": "Julian Mailly"
