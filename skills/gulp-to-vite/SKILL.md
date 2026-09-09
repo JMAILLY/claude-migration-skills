@@ -95,7 +95,17 @@ Verify each of these; they decide the approach and avoid nasty surprises:
    unreferenced, **leave it out and say so in the verdict**. Reproducing a broken
    task faithfully is not iso-functional, it is just broken.
 2. **JS style** — `grep -rlE '^\s*(import|export)\s|require\(' <theme>/src/js`.
-   Empty ⇒ classic scripts ⇒ copy, don't bundle.
+   Empty ⇒ classic scripts ⇒ copy, don't bundle. Then check **which of the two
+   classic shapes** it is, because they need different plugins:
+   - **per-file copy** — Gulp globs `src/js/**/*.js` and terser-copies each one.
+   - **concat manifest** — a root JSON (e.g. `site.json` with a `jsFiles` list)
+     concatenates vendor libraries **plus** the theme scripts into a single
+     `script.min.js`. Order is load-bearing, so the plugin must preserve the
+     manifest sequence exactly and esbuild is only a minifier. Give the plugin a
+     fallback to `src/js/*.js` when the manifest is absent, so deleting it later
+     is a no-op. Replacing the manifest with real `*.libraries.yml` entries is a
+     **separate follow-up**, not part of the iso-functional migration →
+     `references/vendor-libs-to-libraries.md`.
 3. **`*.libraries.yml`** — count entries. Per-paragraph CSS/JS mapped 1:1 (dozens
    of fixed paths) ⇒ rewriting to `dist/` is high-churn ⇒ prefer Arch B.
 
@@ -193,7 +203,14 @@ churn.
 
 See **`references/arch-b-implementation.md`** for the complete, verified,
 copy-pasteable code (package.json, vite.config.mjs, the 4 plugins, the Drupal
-dev wiring, Docker/Makefile/CI edits). The shape:
+dev wiring, Docker/Makefile/CI edits).
+
+For the **follow-up** that retires a concat manifest and serves the vendor
+libraries from the theme's own `node_modules`, see
+**`references/vendor-libs-to-libraries.md`** — do it on its own branch, with the
+jQuery 4 step, never inside the iso-functional migration.
+
+The shape:
 
 1. **`package.json`** — drop every `gulp-*` + `browser-sync`/`pump`/`require-dir`;
    add `vite sass esbuild postcss postcss-pxtorem imagemin
@@ -387,6 +404,28 @@ dev wiring, Docker/Makefile/CI edits). The shape:
 - **Opt-in scripts you add but never execute are untested** — say so explicitly
   rather than implying coverage (e.g. an `npm run icons` replacement you wrote but
   had no icon change to run it against).
+- **A plugin that writes the file type it watches will rebuild forever.** The
+  Arch B outputs (`css/ js/ images/`) live *inside* Vite's root, so a JS plugin
+  emitting `js/script.min.js` retriggers its own `handleHotUpdate` — the symptom
+  is an endless `🚀 …` log and a laggy page. Two guards, both needed:
+  `server.watch.ignored` must exclude the output folders (which also stops the
+  watcher polling hundreds of built images — that is the lag), and each plugin
+  must ignore its own output path and react only inside its source dir. A healthy
+  dev server logs **exactly one** plugin line per saved file; measure it
+  (idle 0 → one edit 1 → revert 2) rather than eyeballing the log.
+- **`ps | grep -c` lies when you check whether the dev server died.** The grep
+  matches its own command line, so a leftover Vite reports as "0" and you hand
+  the user a `Port 3000 is already in use`. Verify with the listener or a real
+  bind: `netstat -ltn | grep -c ':3000'`, or
+  `node -e 'require("net").createServer().listen(3000)'`. The container's PID 1
+  (`tail -f /dev/null`) reaps nothing, so killed runs leave `[esbuild]` zombies —
+  harmless, but restart the service for a clean slate.
+- **Removing a theme's bundled jQuery breaks every bare `$`.** Core runs
+  `jQuery.noConflict()` in `core/misc/drupal.init.js`, deleting `window.$`; a
+  jQuery concatenated into the theme bundle used to re-create it *after* that ran.
+  So a "double jQuery" that looks like an obvious bug is load-bearing. Full
+  treatment, including the three pre-flight greps before wrapping the file in
+  `(function ($) { … })(jQuery)`, in `references/vendor-libs-to-libraries.md` §3.
 - Pre-existing SASS deprecations (`slash-div`, etc.) surface under Vite too —
   they were there under Gulp; note them, don't fix in-scope.
 
