@@ -15,6 +15,43 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-09-09
+
+### Added
+
+- **`gulp-to-vite`** — `references/vendor-libs-to-libraries.md`, the follow-up
+  that retires a root concat manifest (`site.json`'s `jsFiles`) in favour of real
+  `*.libraries.yml` entries served from the theme's own `node_modules`. It covers
+  the second `package.json` the theme needs — library paths resolve relative to
+  the defining extension, so the repo-root `node_modules` is unreachable — load
+  order coming from `weight` rather than YAML order and verified against the
+  served HTML, and the deployment rule that hinges on one character: an
+  unanchored `--exclude=node_modules` also skips the theme's copy and 404s every
+  library in production, with the `rsync --dry-run` commands that prove it.
+- **`gulp-to-vite`** — the jQuery `noConflict` trap. Dropping a theme's bundled
+  jQuery for `core/jquery` looks like a free win because it removes a real double
+  load, but core runs `jQuery.noConflict()` in `core/misc/drupal.init.js` and
+  deletes `window.$`, which the bundled copy was re-creating afterwards. That side
+  effect is load-bearing; removing it throws `$ is not a function` on the first
+  line of the theme bundle. Includes the three pre-flight greps to run before
+  wrapping the file in `(function ($) { … })(jQuery)`, since the wrapper also
+  scopes every top-level name.
+- **`gulp-to-vite`** — what the approach exposes and what it costs, both stated
+  up front: a theme's `node_modules` sits inside the docroot, so npm metadata
+  becomes publicly readable (`package.json`, READMEs and `.map` files all answer
+  200) and lets anyone enumerate library versions against known CVEs — Drupal's
+  `.htaccess` blocks `composer.json`, not `package.json`, so the rule is added —
+  and 8.1 MB / 511 files for five libraries, 3.2 MB of it a jQuery pulled in
+  transitively and never served.
+- **`gulp-to-vite`** — step 1 now classifies the two classic-JS shapes, because
+  per-file copy and concat manifest need different plugins, and tells you to give
+  the concat plugin a fallback so deleting the manifest later is a no-op.
+- **`gulp-to-vite`** — two new gotchas: a plugin that writes the file type it
+  watches rebuilds forever, since the Arch B outputs live inside Vite's root, so
+  `server.watch.ignored` must exclude them *and* each plugin must ignore its own
+  output; and `ps | grep -c` self-matches and reports a live dev server as dead,
+  which is how you end up handing the user a `Port already in use`.
+
 ## [1.1.0] — 2026-09-02
 
 ### Added
@@ -85,7 +122,8 @@ that are Dockerized and driven by a `Makefile`.
 - **`sass-migrator`** (any stack) — migration off deprecated Dart Sass syntax
   with a harness that proves the compiled CSS is byte-identical.
 
-[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/JMAILLY/claude-migration-skills/releases/tag/v1.0.0
