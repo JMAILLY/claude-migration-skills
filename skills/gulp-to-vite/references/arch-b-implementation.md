@@ -93,10 +93,25 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       port: 3009,                                   // adjust per project; collides across GM projects
       origin: env.HOME_URL,
-      cors: true,
+      // root is the whole docroot, served raw. Never `cors: true`: any page the
+      // developer visits could then read it. Only the Drupal site may fetch.
+      cors: { origin: env.HOME_URL },
+      // Replaces Vite's default deny list, so the defaults are repeated.
+      fs: {
+        deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/*.php', '**/*.inc', '**/*.yml'],
+      },
       allowedHosts: ['.dev.localhost'],
       hmr: { host: 'localhost', protocol: 'wss', clientPort: 3009 },
-      watch: { usePolling: true, interval: 300 },   // Docker Desktop macOS: inotify not forwarded
+      watch: {
+        usePolling: true, interval: 300,            // Docker Desktop macOS: inotify not forwarded
+        // Polling cost scales with file count: core + contrib are tens of
+        // thousands of files that never change during theme work.
+        ignored: [
+          '**/themes/custom/*/css/**', '**/themes/custom/*/js/**', '**/themes/custom/*/images/**',
+          '**/sites/*/files/**', '**/node_modules/**',
+          '**/core/**', '**/modules/contrib/**', '**/themes/contrib/**', '**/libraries/**',
+        ],
+      },
     },
   };
 });
@@ -153,7 +168,9 @@ import postcss from 'postcss';
 import pxtorem from 'postcss-pxtorem';
 
 export default function ViteSass({ groups, pxtorem: pxtoremOptions, dev }) {
-  const silenceDeprecations = ['legacy-js-api', 'color-functions', 'global-builtin', 'import'];
+  // No 'legacy-js-api' here: that warning only comes from the legacy
+  // render()/renderSync() API, and this plugin uses sass.compile().
+  const silenceDeprecations = ['color-functions', 'global-builtin', 'import'];
   const processor = postcss([pxtorem(pxtoremOptions)]);
 
   async function compileEntry(input, output) {
@@ -293,6 +310,21 @@ export default function ViteImagemin({ srcDir, destDir }) {
 }
 ```
 
+### Variant: sharp + svgo instead of imagemin (no C toolchain)
+
+`sharp` and `svgo` ship prebuilt musl/arm64 binaries, which lets the node image
+drop `autoconf`/`build-base`/`nasm` — a real gain. But the encoders must stay
+**equivalent**, or the "iso-functional" migration silently degrades images:
+
+| Old (imagemin) | sharp equivalent | Trap |
+|---|---|---|
+| `optipng({ optimizationLevel: 5 })` — lossless | `.png({ compressionLevel: 9, effort: 10 })` | **never `palette: true`**: that quantises to 256 colours (banding on gradients, degraded alpha) — a lossy change a reviewer will flag |
+| `mozjpeg({ quality: 75, progressive: true })` | `.jpeg({ quality: 75, progressive: true, mozjpeg: true })` | — |
+| `gifsicle({ interlaced: true })` | none — copy as-is | say so in the MR |
+
+Keep "never write an output bigger than its source". If a lossy setting is
+wanted for the size win, it is a separate, visually-validated change.
+
 ## `plugins/vite-icon-sprite.js`
 
 ```js
@@ -312,6 +344,10 @@ export default function ViteIconSprite({ srcDir, destFile }) {
       if ($svg.length === 0) continue;
       const viewBox = $svg.attr('viewBox');
       const id = file.replace(/\.svg$/, '');
+      if (!viewBox) {                              // else the symbol ships viewBox="undefined"
+        console.warn('\x1b[33m%s\x1b[0m', `⚠ vite-icon-sprite: ${file} has no viewBox, skipped`);
+        continue;
+      }
       svg = svg
         .replace(/<\?xml[^>]*>/g, '').replace(/<!--[\s\S]*?-->/g, '').replace(/<style[\s\S]*?<\/style>/g, '')
         .replace(/\r?\n|\r/g, '').replace(/\t/g, '').replace(/\s{2,}/g, ' ')
@@ -443,11 +479,14 @@ FPM worker, which sees a different environment (`clear_env`).
 
 - **compose `node` service**: keep it idle (`command: ["tail","-f","/dev/null"]`)
   and run Vite via `make npm-dev`; drop dead `BS_*` env; set `THEME_FOLDER`.
-  - *Option A* — just publish the port: `ports: ["3009:3009"]`.
+  - *Option A* — publish the port **on loopback only**:
+    `ports: ["127.0.0.1:3009:3009"]`. A bare `"3009:3009"` binds 0.0.0.0 and
+    serves the raw docroot to the whole LAN.
   - *Option B (Traefik)* — join the `traefik-public` network and add labels so
     Vite is reachable at the trusted `<project>-vite.dev.localhost`; also pass
-    `VITE_DEV_URL` (read by `vite.config.mjs`). Keep the published port too for
-    optional direct access.
+    `VITE_DEV_URL` (read by `vite.config.mjs`) and `HOME_URL` (the CORS origin).
+    **Publish no port**: Traefik reaches Vite over the Docker network, and a
+    published port only adds LAN exposure and cross-project port clashes.
 
     ```yaml
     node:

@@ -15,6 +15,54 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [1.2.1] — 2026-09-30
+
+### Fixed
+
+Every item below was a finding in the review of the agena3000 migration MRs
+(Lando → Docker, Gulp → Vite) and traced back to a template in these skills.
+
+- **`lando-to-docker`** — `xdebug.ini` was mounted over
+  `docker-php-ext-xdebug.ini`, replacing the `zend_extension` line written by
+  `install-php-extensions`: Xdebug never loaded. Now mounted as
+  `zz-xdebug.ini`, and the php service always carries
+  `extra_hosts: host.docker.internal:host-gateway` (Linux hosts).
+- **`lando-to-docker`** — `make db-import` tested `-n` before `sql-drop`, so a
+  typo in the path wiped the local DB. Now `test -f`.
+- **`lando-to-docker`** — `make init` regenerated `HASH_SALT` on every run
+  (invalidating sessions and `uli` links). Now generated only when empty, with a
+  portable `sed -i.bak` instead of the uname branch; `init` no longer runs `up`
+  twice.
+- **`lando-to-docker`** — the catch-all `%:` no-op swallowed mistyped targets
+  (`make updv` exited 0). It now only swallows the positional words.
+- **`lando-to-docker`** — Mailpit was documented as catching all mail while the
+  transport lives in the imported DB, so local sends went through the real
+  transport. `drupal-glue.md` now overrides every symfony_mailer transport (and
+  covers the smtp module / `php_mail`), and the verification requires a real
+  send observed in Mailpit.
+- **`lando-to-docker`** — the extension installer is pinned instead of
+  `releases/latest`; redundant `build-essential` and the entrypoint DB wait
+  loop (duplicate of `service_healthy`) removed; `error_reporting = E_ALL` in
+  dev; the mysql driver namespace is `Drupal\mysql\Driver\Database\mysql`.
+- **`lando-to-docker`** / **`gulp-to-vite`** — the Vite dev server shipped with
+  `cors: true`, `root: 'web'` and a port published on `0.0.0.0`: the raw
+  docroot (`settings.php`, `.env`) was readable from the LAN and from any
+  visited site. CORS is now limited to `HOME_URL`, `server.fs.deny` covers
+  PHP/YAML/env files, and Option B publishes no port (Option A binds
+  `127.0.0.1`). `watch.ignored` now excludes core and contrib.
+- **`gulp-to-vite`** — the manifest fallback became dead code once the manifest
+  was retired, and docs/`CLAUDE.md` kept claiming a "top-level globals"
+  invariant the IIFE had removed. `vendor-libs-to-libraries.md` now requires
+  removing both in the same diff.
+- **`gulp-to-vite`** — a sharp variant of the images plugin with lossless PNG
+  (never `palette: true`, which quantises to 256 colours); the sprite plugin
+  skips icons without a `viewBox` instead of writing `viewBox="undefined"`; the
+  sass plugin no longer silences `legacy-js-api`, which `compile()` never emits.
+- **`lando-to-docker`** / **`gulp-to-vite`** — Verify steps now test the failure
+  paths above (mistyped target, missing dump, `init` twice, `php -m`, dev-server
+  exposure, image quantisation, stale docs) and the house coding rules (return
+  types, JSDoc) before the MR.
+
 ## [1.2.0] — 2026-09-09
 
 ### Added
@@ -122,7 +170,8 @@ that are Dockerized and driven by a `Makefile`.
 - **`sass-migrator`** (any stack) — migration off deprecated Dart Sass syntax
   with a harness that proves the compiled CSS is byte-identical.
 
-[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.0.0...v1.0.1

@@ -68,8 +68,13 @@ services:
     volumes:
       - ../../../:/var/www/html
       - ../../php/php.ini:/usr/local/etc/php/conf.d/99-custom.ini:ro
-      - ../../php/xdebug.ini:/usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini:ro
+      # NOT docker-php-ext-xdebug.ini: that file holds the zend_extension line
+      # written by install-php-extensions — mounting over it unloads Xdebug.
+      - ../../php/xdebug.ini:/usr/local/etc/php/conf.d/zz-xdebug.ini:ro
       - ../../php/www.conf:/usr/local/etc/php-fpm.d/zzz-custom.conf:ro
+    # host.docker.internal only exists by default on Docker Desktop
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     working_dir: /var/www/html
     entrypoint: ["bash", "/var/www/html/docker/php/entrypoint.sh"]
     command: ["php-fpm"]
@@ -138,10 +143,14 @@ services:
     command: ["tail", "-f", "/dev/null"]     # idle; commands run via `make npm-*`
     volumes:
       - ../../../:/var/www/html
-    ports:
-      - "${VITE_SERVER_PORT:-3000}:${VITE_SERVER_PORT:-3000}"
+    # No `ports:` — Traefik reaches the dev server over traefik-public. Publishing
+    # it (on 0.0.0.0 by default) exposes the raw docroot to the LAN and makes
+    # every project fight over the same host port.
     environment:
       THEME_FOLDER: ${THEME_FOLDER}
+      VITE_SERVER_PORT: ${VITE_SERVER_PORT:-3000}
+      VITE_DEV_URL: https://${COMPOSE_PROJECT_NAME}-vite.dev.localhost
+      HOME_URL: https://${COMPOSE_PROJECT_NAME}.dev.localhost   # Vite CORS origin
     networks:
       - app-internal
       - traefik-public

@@ -42,6 +42,20 @@ try {
 } catch { /* no manifest: fall back to the theme's own scripts */ }
 ```
 
+**Once the manifest is deleted, the fallback is dead code — remove it.** Keep
+the fallback only while the manifest still exists. In the follow-up commit that
+deletes the manifest, in the same diff:
+
+- drop the `manifest` option and the manifest-reading branch from the plugin
+  (keep a plain `glob` option), and the matching key in `vite.config.mjs`;
+- rewrite every docblock/comment that describes the concat (vendor libs listed
+  first, "order is load-bearing", "esbuild must not rename top-level globals")
+  — after §3 the theme script is an IIFE, so its locals *are* mangled and
+  nothing may call them by name;
+- `git grep -n '<manifest>.json\|top-level global'` across `docs/`, `README`,
+  **`CLAUDE.md`/`AGENTS.md`** (these steer future agents — a false invariant
+  there is worse than none) must come back empty.
+
 ---
 
 ## 1. The theme needs its own `package.json`

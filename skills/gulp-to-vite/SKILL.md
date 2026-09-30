@@ -336,6 +336,20 @@ The shape:
   https://<project>.dev.localhost/ | grep -c '@vite/client'` must return 1
   locally. A CLI `php -r` check passes even when the FPM worker sees no
   environment at all (`clear_env`), so it proves nothing on its own.
+- **Dev-server exposure** (with `make npm-dev` running): no host port bound on
+  `0.0.0.0` (`docker compose port node <port>` empty for Option B, `127.0.0.1:`
+  for A); a raw `*.php` / `.env` / `*.yml` under the docroot answers **403**
+  through the dev server; `@vite/client` answers 200 with
+  `Access-Control-Allow-Origin` equal to the site origin, never `*`.
+- **Iso-functional images**: diff a few transparent/gradient PNGs between
+  `src/images` and `images/` — any colour quantisation is a behaviour change.
+- **No stale narrative**: `git grep` the retired names (the manifest, `gulp`,
+  `BrowserSync`, `-bs.` hostnames, "top-level globals") across `docs/`, READMEs
+  and `CLAUDE.md`/`AGENTS.md`. Each hit is either still true or gets rewritten.
+- **House coding rules on new code**: PHP functions/closures you add or touch
+  get a return type (`: void`…); plugin-internal JS functions get a short JSDoc
+  (`@param` / `@returns`). Run `gm:review` (if available) on the diff before
+  opening the MR — it applies these rules.
 - **Clean diff**: no regenerated build artifact committed (`git checkout HEAD --`
   the force-committed ones; they're often silently *staged*).
 - **Manual UAT** (needs the stack up): `make npm-dev`, accept the self-signed cert
@@ -426,6 +440,14 @@ The shape:
   So a "double jQuery" that looks like an obvious bug is load-bearing. Full
   treatment, including the three pre-flight greps before wrapping the file in
   `(function ($) { … })(jQuery)`, in `references/vendor-libs-to-libraries.md` §3.
+- **`cors: true` + `root: 'web'` + a published port = the raw docroot readable
+  from the LAN and from any site the developer visits** (`settings.php`,
+  `.env`). Always `cors: { origin: HOME_URL }`, `server.fs.deny` for PHP/YAML/
+  env files, and no `0.0.0.0` port (Option B needs none).
+- **Iso-functional migration and follow-up in one MR**: if the concat-manifest
+  retirement lands in the same MR anyway, the manifest fallback written for the
+  iso-functional step is dead on arrival — remove it before opening the MR
+  (vendor-libs-to-libraries.md, intro).
 - Pre-existing SASS deprecations (`slash-div`, etc.) surface under Vite too —
   they were there under Gulp; note them, don't fix in-scope.
 

@@ -55,12 +55,17 @@ server: {
   strictPort: true,
   port: 3000,
   origin: process.env.VITE_DEV_URL,          // https://<project>-vite.dev.localhost
-  cors: true,
+  cors: { origin: process.env.HOME_URL },    // the Drupal site only, never `true`
+  // root is the docroot: deny the raw settings files (list replaces Vite's defaults)
+  fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/*.php', '**/*.inc', '**/*.yml'] },
   allowedHosts: ['.dev.localhost'],
   hmr: { host: '<project>-vite.dev.localhost', protocol: 'wss', clientPort: 443 },
   watch: { usePolling: true, interval: 300 }, // Docker Desktop macOS: no inotify on bind mounts
 },
 ```
+
+The node service publishes **no** host port (compose-traefik.md): Traefik
+reaches Vite on the Docker network. Full details in the `gulp-to-vite` skill.
 
 ### Vite + Tailwind CSS v4 (sterimed model)
 
