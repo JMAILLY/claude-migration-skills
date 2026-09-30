@@ -107,7 +107,7 @@ $databases['default']['default'] = [
   'host'      => $_ENV['MYSQL_HOSTNAME'] ?? 'db',
   'port'      => $_ENV['MYSQL_PORT'] ?? '3306',
   'driver'    => 'mysql',
-  'namespace' => 'Drupal\\Core\\Database\\Driver\\mysql',
+  'namespace' => 'Drupal\\mysql\\Driver\\Database\\mysql',
 ];
 
 $settings['config_sync_directory'] = '../config/sync';
@@ -133,6 +133,44 @@ if (($_ENV['APP_ENV'] ?? NULL) === 'local') {
   $settings['cache']['bins']['dynamic_page_cache'] = 'cache.backend.null';
 }
 ```
+
+> The driver namespace is `Drupal\mysql\Driver\Database\mysql` (core module
+> since 9.4). The historical `Drupal\Core\Database\Driver\mysql` is only a BC
+> layer and is removed in Drupal 11 — don't copy it from the Lando-era file.
+
+### Mail must really land in Mailpit
+
+Starting a Mailpit container and passing `SMTP_*` env vars does **nothing** on
+its own: nothing in Drupal reads them. The transport is configuration, so after
+importing a preprod/prod dump the site keeps sending through the **real**
+transport — a webform tested locally can email real people. Override it in the
+tracked local settings file:
+
+- **symfony_mailer** — the transports are config entities
+  `symfony_mailer.mailer_transport.<id>`. List the ids (`make drush c='config:list symfony_mailer.mailer_transport'`
+  — ids only, never `cget` a transport into the transcript: it holds SMTP
+  credentials) and force **every** one of them onto Mailpit, so whichever is
+  the default nothing leaves the machine:
+
+  ```php
+  foreach (['smtp', 'sendmail'] as $transport_id) {   // every id from config:list
+    $config["symfony_mailer.mailer_transport.$transport_id"]['plugin'] = 'smtp';
+    $config["symfony_mailer.mailer_transport.$transport_id"]['configuration'] = [
+      'user' => '', 'pass' => '',
+      'host' => $_ENV['SMTP_HOSTNAME'] ?? 'mailpit',
+      'port' => (int) ($_ENV['SMTP_PORT'] ?? 1025),
+    ];
+  }
+  ```
+- **smtp module** — `$config['smtp.settings']['smtp_host'] = 'mailpit';`,
+  `smtp_port = '1025'`, `smtp_protocol = 'standard'`, `smtp_on = TRUE`.
+- **core `php_mail`** — sendmail inside the php container has no MTA; either
+  switch `system.mail` to an SMTP-capable plugin or install `msmtp` pointed at
+  `mailpit:1025` as `sendmail_path`.
+
+Verify: `cget … --include-overridden` shows `host: mailpit`, **and** a real
+send (a webform submit) shows up in Mailpit. Never write "Mailpit catches all
+outgoing mail" in the docs until that send was observed.
 
 > `web/sites/*/settings.php` is often git-ignored (a local file). If so, the
 > Docker glue lives there and you edit the developer's local file rather than a
@@ -228,7 +266,7 @@ $databases['default']['default'] = [
   'host'     => $_ENV[$env_site_prefix.'DB_HOST']     ?? $site_id,   // = network alias
   'port'     => $_ENV[$env_site_prefix.'DB_PORT']     ?? '3306',
   'driver'   => 'mysql',
-  'namespace'=> 'Drupal\\Core\\Database\\Driver\\mysql',
+  'namespace'=> 'Drupal\\mysql\\Driver\\Database\\mysql',
 ];
 ```
 

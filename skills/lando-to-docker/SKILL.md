@@ -131,12 +131,21 @@ make up                                    # prints the URLs
 make drush c='status'                      # DB connected, bootstrap OK, shows PHP version
 curl -ksI https://<project>.dev.localhost | head -1   # 200/301 via Traefik
 make npm-build                             # frontend builds in the node container
+
+# Failure paths — each one was a review finding once, test them, don't assume
+make updv; echo $?                         # mistyped target → non-zero, not a silent 0
+make db-import _dumps/nope.sql.gz          # → "file not found", DB still intact
+grep HASH_SALT .env; make init; grep HASH_SALT .env   # identical: init is re-runnable
+XDEBUG_MODE=debug docker compose … run --rm --no-deps --entrypoint "" php php -m | grep -i xdebug
 ```
 
 Manual checks:
 
 - [ ] `https://<project>.dev.localhost` loads (TLS via Traefik, no cert warning)
 - [ ] Adminer at `https://<project>-adminer.dev.localhost`, Mailpit at `-mailpit`
+- [ ] After importing a preprod dump, a real send (webform, password reset)
+      lands in Mailpit — the transport override is in place (drupal-glue.md)
+- [ ] No service publishes a host port that Traefik already routes
 - [ ] `make uli uid=1` logs in
 - [ ] Edits to files on the host are picked up (bind mount + UID/GID remap OK)
 - [ ] `make npm-dev` HMR works (Vite/Gulp) if applicable
@@ -170,6 +179,10 @@ old `.lando.yml` deletion in the same commit as the new `docker/` + `Makefile`.
 | Root-owned files on host / permission errors | `USER_ID`/`GROUP_ID` not set to host values | Set from `id -u`/`id -g`, `make rebuild` |
 | `npm install` fails on Apple Silicon | `imagemin-optipng` native build | Toolchain node Dockerfile form (docker-images.md) |
 | Vite HMR dead / mixed-content | `wss`/`clientPort`/CSP/library scheme mismatch | HMR checklist in frontend-build.md |
+| `php -m` has no xdebug whatever `XDEBUG_MODE` says | `xdebug.ini` mounted over `docker-php-ext-xdebug.ini` | Mount as `zz-xdebug.ini` (docker-images.md) |
+| Xdebug never connects on Linux | `host.docker.internal` unresolved | `extra_hosts: host-gateway` on php |
+| Local webform emails real people | transport lives in the imported DB | Override every transport in local settings (drupal-glue.md) |
+| `make db-import` wiped the DB then failed | guard tested `-n` instead of `-f` | `test -f "$(FILE)"` before `sql-drop` |
 | Multisite init SQL didn't run | init SQL only runs on an empty volume | `make destroy` then `make init` |
 | `updb`/`cr` order errors after a later core bump | unrelated — that's the `d11` skill | see `d11` |
 

@@ -38,13 +38,15 @@ FILE := $(word 2,$(MAKECMDGOALS))
    `make uli uid=1`, `make en m=devel`.
 2. **Positional passthrough** — `make en devel admin_toolbar`,
    `make composer-require drupal/foo`, `make db-import dump.sql`. This relies on
-   `ARG`/`FILE` above plus a **catch-all no-op rule** so Make doesn't error on
-   the extra words treated as goals:
+   `ARG`/`FILE` above plus a **catch-all rule** so Make doesn't error on
+   the extra words treated as goals. It must swallow **only** those extra words:
+   a bare `@:` no-op also swallows a mistyped first goal (`make updv` exits 0 and
+   does nothing — a reviewer will flag it):
 
 ```make
-# Swallow extra positional words so they aren't run as targets
+# Swallow extra positional words, but still fail on a mistyped target
 %:
-	@:
+	@$(if $(filter $@,$(ARG)),:,echo "make: *** No rule to make target '$@'. See 'make help'." >&2; exit 1)
 ```
 
 Targets combine both with `$(or $(ARG),$(c))` / `$(or $(ARG),$(m))`.
@@ -55,6 +57,10 @@ Targets combine both with `$(or $(ARG),$(c))` / `$(or $(ARG),$(m))`.
 ## up: Start containers and print URLs
 up:
 	$(DC) up -d
+	@$(MAKE) --no-print-directory urls
+
+# Split out so init can print the URLs without a second `up`
+urls:
 	@echo "Site:    https://$(COMPOSE_PROJECT_NAME).dev.localhost"
 	@echo "Adminer: https://$(COMPOSE_PROJECT_NAME)-adminer.dev.localhost"
 	@echo "Mailpit: https://$(COMPOSE_PROJECT_NAME)-mailpit.dev.localhost"
@@ -100,19 +106,20 @@ install:
 ## init: First-run bootstrap (.env, HASH_SALT, build, up)
 init:
 	@test -f .env || cp .env.example .env
-	@# Generate HASH_SALT (OS-aware sed)
-	@salt=$$(openssl rand -base64 55 | tr -d '\n/'); \
-	if [ "$$(uname)" = "Darwin" ]; then \
-		sed -i '' "s|^HASH_SALT=.*|HASH_SALT='$$salt'|" .env; \
-	else \
-		sed -i "s|^HASH_SALT=.*|HASH_SALT='$$salt'|" .env; \
-	fi
+	@# Generate HASH_SALT only when missing — init must be re-runnable without
+	@# invalidating sessions, uli links and tokens. `sed -i.bak` works on GNU
+	@# and BSD sed alike, so no uname branch is needed.
+	@grep -qE "^HASH_SALT=.+" .env || { \
+		salt=$$(openssl rand -base64 55 | tr -d '\n/'); \
+		sed -i.bak "s|^HASH_SALT=.*|HASH_SALT='$$salt'|" .env; \
+	}
+	@sed -i.bak -e "s|^USER_ID=.*|USER_ID=$$(id -u)|" -e "s|^GROUP_ID=.*|GROUP_ID=$$(id -g)|" .env && rm -f .env.bak
 	$(DC) up -d --build --wait
 	$(COMPOSER) install
 	$(EXEC_PHP) mkdir -p storage/private/default/logs
 	$(EXEC_NODE) npm install
 	$(EXEC_NODE) npm run build
-	$(MAKE) up
+	@$(MAKE) --no-print-directory urls
 	@echo "Now: make db-import <dump>  &&  make cim  &&  make cr"
 
 ## drush: Run a drush command — make drush c='cr'
@@ -177,7 +184,7 @@ db-export:
 
 ## db-import: Import a dump — make db-import _dumps/dump.sql[.gz]
 db-import:
-	@test -n "$(FILE)" || { echo "Usage: make db-import <file>"; exit 1; }
+	@test -f "$(FILE)" || { echo "Usage: make db-import <file> (file not found: $(FILE))"; exit 1; }
 	$(DRUSH) sql-drop --yes
 	@case "$(FILE)" in \
 	  *.gz) gunzip -c "$(FILE)" | $(DC) exec -T --user www-data $(PHP) vendor/bin/drush --uri=$(SITE) sql-cli ;; \
@@ -215,11 +222,15 @@ prettier:
 help:
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## //' | awk -F': ' '{printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
-# Catch-all: swallow positional args so they aren't treated as targets
+# Catch-all: swallow positional args, fail on a mistyped target
 %:
-	@:
+	@$(if $(filter $@,$(ARG)),:,echo "make: *** No rule to make target '$@'. See 'make help'." >&2; exit 1)
 ```
 
+> **`db-import` must test `-f`, not `-n`.** `sql-drop` runs before the dump is
+> read, so a typo in the path with a mere "non-empty" guard wipes the local DB
+> and then fails on `gunzip`.
+>
 > `db-import` uses `exec -T` (no TTY) because it pipes stdin. `destroy` drops the
 > DB volume — needed to re-run the multisite init SQL (it only runs on an empty
 > data volume).

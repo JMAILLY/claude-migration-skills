@@ -35,11 +35,14 @@ docker/
 FROM php:8.4-fpm
 LABEL description="Drupal development environment"
 
-# mlocati's extension installer — resolves system deps automatically
-ADD --chmod=0755 https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
+# mlocati's extension installer, PINNED (never releases/latest: the build would
+# not be reproducible). It installs and cleans up the build toolchain each
+# extension needs, so no build-essential here. Check the current tag with:
+#   curl -s https://api.github.com/repos/mlocati/docker-php-extension-installer/releases/latest | jq -r .tag_name
+ADD --chmod=0755 https://github.com/mlocati/docker-php-extension-installer/releases/download/2.12.0/install-php-extensions /usr/local/bin/
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential imagemagick default-mysql-client git openssh-client \
+    imagemagick default-mysql-client git openssh-client \
     curl nano rsync gnupg zip unzip \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -82,16 +85,7 @@ mkdir -p /var/log/php
 chown -R www-data:www-data /var/www/html/storage /var/www/html/web/sites/default/files /var/log/php
 chmod -R 775 /var/www/html/storage /var/www/html/web/sites/default/files
 
-# Wait for the database (30 tries, 2s apart)
-if [ -n "$MYSQL_HOSTNAME" ]; then
-    tries=0
-    until php -r "new PDO('mysql:host=${MYSQL_HOSTNAME};port=${MYSQL_PORT:-3306}', '${MYSQL_USER}', '${MYSQL_PASSWORD}');" 2>/dev/null; do
-        tries=$((tries+1))
-        [ "$tries" -ge 30 ] && echo "DB not reachable, continuing anyway" && break
-        echo "Waiting for database... ($tries/30)"
-        sleep 2
-    done
-fi
+# No DB wait loop: compose already gates php on `db: condition: service_healthy`.
 
 echo "=== Development Container Ready ==="
 exec "$@"
@@ -102,7 +96,9 @@ Referenced in compose as `entrypoint: ["bash", "/var/www/html/docker/php/entrypo
 ## `docker/php/php.ini` → mounted at `/usr/local/etc/php/conf.d/99-custom.ini`
 
 ```ini
-error_reporting = E_ALL & ~E_NOTICE & ~E_WARNING & ~E_DEPRECATED
+; Everything in dev — hiding warnings/deprecations here defeats the point of a
+; local env right before a PHP or Drupal major upgrade.
+error_reporting = E_ALL
 display_errors = On
 display_startup_errors = On
 error_log = /var/log/php/error.log
@@ -133,7 +129,7 @@ zend.assertions = 1
 clear_env = no
 ```
 
-## `docker/php/xdebug.ini` → mounted at `/usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini`
+## `docker/php/xdebug.ini` → mounted at `/usr/local/etc/php/conf.d/zz-xdebug.ini`
 
 ```ini
 [xdebug]
@@ -149,9 +145,16 @@ xdebug.var_display_max_data = 1024
 ```
 
 > The runtime toggle is the `XDEBUG_MODE` env var (compose `environment`), not
-> this file — set `XDEBUG_MODE=off` in `.env` for performance. On Linux hosts,
-> add `extra_hosts: ["host.docker.internal:host-gateway"]` to the php service
-> (Docker Desktop on macOS provides it automatically).
+> this file — set `XDEBUG_MODE=off` in `.env` for performance.
+>
+> **Never mount it as `docker-php-ext-xdebug.ini`.** `install-php-extensions
+> xdebug` writes that exact file with the `zend_extension=xdebug.so` line;
+> mounting over it silently unloads the extension (`php -m` no longer lists
+> xdebug whatever `XDEBUG_MODE` says). Use a distinct name sorted after it.
+> The php service always carries `extra_hosts: ["host.docker.internal:host-gateway"]`
+> — only Docker Desktop resolves that name out of the box, Linux hosts do not.
+>
+> Verify: `docker compose run --rm --no-deps --entrypoint "" -e XDEBUG_MODE=debug php php -m | grep -i xdebug`.
 
 ## `docker/apache/Dockerfile` — thin reverse proxy to PHP-FPM
 
