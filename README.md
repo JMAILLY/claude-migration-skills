@@ -29,7 +29,7 @@ expect.
 | [`php-deprecations-audit`](skills/php-deprecations-audit) | **Drupal** | Audits and fixes deprecated APIs in custom code with `upgrade_status` + `drupal-rector` + PHPStan, looping until zero. Replayable for the next major. |
 | [`gulp-to-vite`](skills/gulp-to-vite) | **Drupal** (theme) | Gulp → Vite build migration that leaves `*.libraries.yml` untouched, with the dev HMR wiring and the Drupal/Apache caches that must be off for it to work. |
 | [`jquery-4-migration`](skills/jquery-4-migration) | **Drupal** (theme) — jQuery knowledge is generic | jQuery 3 → 4 (as shipped by Drupal 11): removed APIs, native replacements, and a scoped local polyfill for third-party libs that are not ready. |
-| [`phpcs-standards`](skills/phpcs-standards) | **PHP** — any framework | Sets up or verifies PHP_CodeSniffer, then clears custom code to zero violations. **Asks which standard: Drupal + DrupalPractice, or PSR-12.** Handles phpcbf's silent `FAILED TO FIX`, and turns every behaviour-changing fix into a manual UAT step in the merge request. |
+| [`phpcs-standards`](skills/phpcs-standards) | **PHP** — any framework | Sets up or verifies PHP_CodeSniffer and PHPStan, then clears custom code to zero violations. **Asks which standard: Drupal + DrupalPractice, or PSR-12**, and which PHPStan level. Handles phpcbf's silent `FAILED TO FIX`, and turns every behaviour-changing fix into a manual UAT step in the merge request. Optionally adds the phpcs/phpstan GitLab CI jobs with SonarQube report converters, without shipping dev dependencies. |
 | [`php-docker-upgrade`](skills/php-docker-upgrade) | **PHP** — any framework | Bumps the PHP version of the containers (8.4, 8.5, later) — target version is a parameter — and updates the Composer platform pin. |
 | [`sass-migrator`](skills/sass-migrator) | **SCSS** — any stack | Migrates off deprecated Dart Sass syntax (`@import` → `@use`/`@forward`, division, `strict-unary`, `mixed-decls`) with a harness that proves the compiled CSS is byte-identical. |
 
@@ -110,7 +110,7 @@ Run Claude Code **at the project root**, then invoke a skill:
 /jquery-4-migration      # jQuery 3 → 4
 /gulp-to-vite            # Gulp → Vite front build
 /sass-migrator           # SCSS modernization
-/phpcs-standards         # phpcs/phpcbf setup + zero-violation pass
+/phpcs-standards         # phpcs/phpstan setup + zero-violation pass (+ CI jobs)
 ```
 
 They also trigger on plain description — "migrate the theme to jQuery 4", "clean
