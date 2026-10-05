@@ -15,6 +15,17 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-10-05
+
+### Changed
+
+- `phpcs-standards`: the CI QA jobs now reuse the existing composer job
+  (without `--no-dev`) when the server rebuilds `vendor/` with
+  `composer install --no-dev`, which is the agency's Deployer default. A
+  separate `composer_qa` install is kept only for pipelines whose CI
+  `vendor/` ships. The contrib directories are excluded from the deploy
+  upload in that case.
+
 ## [1.3.0] — 2026-10-05
 
 ### Added
@@ -197,7 +208,8 @@ that are Dockerized and driven by a `Makefile`.
 - **`sass-migrator`** (any stack) — migration off deprecated Dart Sass syntax
   with a harness that proves the compiled CSS is byte-identical.
 
-[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.1.0...v1.2.0
