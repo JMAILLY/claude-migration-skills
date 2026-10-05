@@ -15,6 +15,33 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-10-05
+
+### Added
+
+- **`phpcs-standards`** now covers PHPStan as well as phpcs. Step 0 asks for the
+  level. `references/phpstan.md` has the dependencies, a `phpstan.neon`
+  template and the fix catalogue for level `max` on Drupal code (typed hooks,
+  inline `@var` array shapes, `instanceof` / `is_array()` guards, `.install`
+  files annotated only), with which fixes change runtime behaviour and need a
+  UAT line. It also covers the conflicts with DrupalPractice.
+- **`phpcs-standards`** can add the phpcs and phpstan GitLab CI jobs with their
+  SonarQube report converters (`references/ci-pipelines.md`). That includes a
+  separate `composer_qa` install, because the deploy install is `--no-dev`,
+  the Deployer excludes for the QA files, and an optional scanner job. Step 0
+  asks for the branches, report-only vs gating, and Sonar now or later.
+
+### Documented
+
+- The agency `phpstan.neon` ignore patterns for hooks were written for
+  PHPStan 1 ("no typehint specified"). Under PHPStan 2 they match nothing,
+  and `reportUnmatchedIgnoredErrors: false` hides that.
+- The template jobs run the tools with `|| true`, so they never fail on a
+  violation. `sonar-project.properties` without a scanner job sends nothing to
+  SonarQube. A scanner job in the same stage as the QA jobs never receives
+  their reports.
+- Makefile targets that read `ARGS=` silently drop `c='…'`.
+
 ## [1.2.1] — 2026-09-30
 
 ### Fixed
@@ -170,7 +197,8 @@ that are Dockerized and driven by a `Makefile`.
 - **`sass-migrator`** (any stack) — migration off deprecated Dart Sass syntax
   with a harness that proves the compiled CSS is byte-identical.
 
-[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.0.1...v1.1.0
