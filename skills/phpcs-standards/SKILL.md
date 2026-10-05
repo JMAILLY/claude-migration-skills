@@ -275,7 +275,8 @@ and to the UAT it demands. Use it as the checklist; do not invent the mapping.
 Only once phpcs is clean. Follow `references/phpstan.md`:
 
 1. **Baseline** grouped by message (§4), not by file. On Drupal at level
-   `max`, untyped hook parameters and `mixed` offsets usually dominate.
+   `max`, untyped hook parameters and `mixed` values usually dominate
+   (offset reads on `mixed` are ignored by the template `phpstan.neon`).
 2. **Fix one error shape at a time** across all files, from the catalogue (§5).
    The catalogue says which fixes change runtime behaviour (`instanceof` and
    `is_array()` guards, arrays built locally). Each of those gets a UAT line,
@@ -408,7 +409,8 @@ say so under `## Vérification` and do not present the UAT as optional.
   and let the user decide.
 - Do not mix a standards pass with a functional change that no sniff asked for.
 - Do not lower the PHPStan level, generate a `phpstan-baseline.neon`, add an
-  `ignoreErrors` entry or a `@phpstan-ignore` for custom-code errors, or
+  `ignoreErrors` entry beyond the template's or a `@phpstan-ignore` for
+  custom-code errors, or
   "repair" dead ignore patterns to make a count go down, unless the user asks.
 - Do not add a SonarQube scanner job, make the QA jobs gating, or extend them
   to more branches than the user chose.

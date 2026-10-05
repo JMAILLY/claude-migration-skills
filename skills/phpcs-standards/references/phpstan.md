@@ -49,6 +49,9 @@ parameters:
   ignoreErrors:
     - identifier: missingType.generics
     - identifier: missingType.iterableValue
+    # Drupal render arrays and hook parameters are untyped nested arrays;
+    # describing each shape with @var only to read an offset is noise.
+    - identifier: offsetAccess.nonOffsetAccessible
     # new static() is a best practice in Drupal, so we cannot fix that.
     - "#^Unsafe usage of new static#"
     - '#expects string\|null, Drupal\\Core\\StringTranslation\\TranslatableMarkup given\.#'
@@ -60,6 +63,15 @@ parameters:
 The `TranslatableMarkup` entries are there because Drupal's own docblocks
 declare `string` where core passes markup everywhere. They are noise, not
 defects.
+
+`offsetAccess.nonOffsetAccessible` (`Cannot access offset 'x' on mixed`) is
+ignored because, at level `max`, every nested read of a render array or a
+hook parameter (`$items['administration']['#attached']['library']`) needs an
+inline `@var array{…}` that only restates the Drupal structure. Reviewers
+read those as useless comments (vitalac MR 43). The ignore only silences the
+offset read itself: once the value is passed to a typed function, a
+`foreach` or a method call, PHPStan still reports the `mixed`, and a `@var`
+or a guard is still owed there (section 5).
 
 **Trap: ignore patterns written for PHPStan 1.** Older templates also carry
 path-scoped entries for hook files:
@@ -73,9 +85,8 @@ PHPStan 2 prints `has no return type specified` and `has parameter $x with no
 type specified`, without "typehint", so these patterns match nothing. Since
 `reportUnmatchedIgnoredErrors: false` is set, nothing warns you that they are
 dead. Do not repair them to get the count down. Even when they match, an
-untyped `$variables` stays `mixed`, and every `$variables['x']` after it
-fails with `Cannot access offset on mixed`. Typing the hook parameter is the
-fix (section 5). Point the dead entries out to the user and let them decide
+untyped `$variables` stays `mixed`, and every use of `$variables['x']`
+after it is reported. Typing the hook parameter is the fix (section 5). Point the dead entries out to the user and let them decide
 whether to delete them.
 
 ### Which level
@@ -121,8 +132,8 @@ SKILL.md).
 | Error | Fix | Runtime change |
 |---|---|---|
 | `has parameter $variables with no type specified` / `no return type specified` on a hook | native types: `function x_preprocess_node(array &$variables): void` | none for preprocess/alter hooks, which always receive arrays |
-| `Cannot access offset 'x' on mixed` on `$variables[...]` | follows from the line above: typing the parameter fixes the first level | none |
-| Same, on a **nested** offset (`$form['elements']['referer']`, `$attachments['#attached']['html_head']`) | inline `/** @var array{elements?: array{referer?: array<string, mixed>}} $form */` at the top of the function, describing the real shape | none |
+| `Cannot access offset 'x' on mixed`, on any level of `$variables[...]`, `$form[...]`, `$attachments['#attached'][...]` | nothing: ignored in `phpstan.neon` (section 2). Do not add an `@var array{…}` only to read an offset | none |
+| `mixed given` / `invalid type mixed supplied for foreach` on a value read from a nested offset | inline `/** @var array{…} $x */` or `/** @var string $x */` describing the real shape, or a guard when the shape is not guaranteed | none for `@var`; see the guard rows below |
 | Same, on an array built in a loop (`$var['list'][$i]['name'] = …`) | build a local array and assign it once at the end | **yes** if the key is now set when the loop is empty, or no longer set. Keep the old behaviour (assign only when non-empty) and check the templates that read it |
 | `Call to an undefined method object::getName()` after `loadTree(..., TRUE)`, `loadMultiple()`, `getTranslationFromContext()` | `/** @var \Drupal\taxonomy\TermInterface[] $tags */`, and use `getName()` / `id()` instead of `->name->value` / `->tid->value` | none: same values |
 | `Cannot call method bundle() on mixed` (`routeMatch()->getParameter('node')`, `$request->attributes->get('node')`) | `if ($node instanceof NodeInterface)`, or `TranslatableInterface` when only `hasTranslation()` is needed | **yes**: a non-entity parameter used to fatal and is now skipped. Keep the original truthiness, e.g. `!$node?->hasTranslation()` becomes `!($node instanceof TranslatableInterface && $node->hasTranslation(...))` |
@@ -143,14 +154,24 @@ hides the bug that PHPStan found.
 
 Do not `@phpstan-ignore` a line, and do not add an `ignoreErrors` entry for a
 custom-code error, unless the user asks. If they do, the entry carries a
-reason.
+reason. The template's `offsetAccess.nonOffsetAccessible` entry is the agency
+default, not a custom-code exception.
+
+**Project set up before 1.3.2?** Add the entry, then remove the inline
+`@var array{…}` lines that only described a shape for offset reads: drop the
+class-free shapes in one pass, run PHPStan once on the whole tree, and put
+back only the ones that bring an error back (typically the ones feeding a
+`foreach`, `explode()` or a typed parameter). Keep any shape that types an
+object (`view: \Drupal\views\ViewExecutable`). Do not run PHPStan once per
+annotation.
 
 ## 6. Conflicts with phpcs
 
 - `Hook implementations should not duplicate @param documentation`
   (DrupalPractice) forbids describing the parameter shape in the hook's
-  docblock. Put the shape in an **inline** `/** @var ... $variables */` inside
-  the function body instead: phpcs accepts it and PHPStan honours it.
+  docblock. When a shape is still needed (section 5), put it in an **inline**
+  `/** @var ... $variables */` inside the function body instead: phpcs
+  accepts it and PHPStan honours it.
 - New `use` lines (`NodeInterface`, `SelectInterface`, `MarkupInterface`)
   must stay alphabetical for phpcs.
 - A `@param` added to a non-hook helper needs a description line, or phpcs

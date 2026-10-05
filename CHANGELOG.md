@@ -15,6 +15,17 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [1.3.2] — 2026-10-05
+
+### Changed
+
+- `phpcs-standards`: the template `phpstan.neon` ignores
+  `offsetAccess.nonOffsetAccessible`. Nested offset reads on render arrays
+  and hook parameters no longer get an inline `@var array{…}` that only
+  restates the Drupal structure; a `@var` or a guard is still owed where
+  the value feeds a typed function, a `foreach` or a method call. Projects
+  set up with 1.3.0 or 1.3.1 get a one-pass cleanup procedure.
+
 ## [1.3.1] — 2026-10-05
 
 ### Changed
