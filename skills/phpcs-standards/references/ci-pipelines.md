@@ -28,13 +28,28 @@ grep -n 'composer install' .gitlab-ci.yml
 grep -n -A8 '^deploy' .gitlab-ci.yml        # its dependencies: list
 ```
 
-**The trap: `composer install --no-dev`.** Deploy pipelines usually install
-without dev dependencies, and that `vendor/` artifact is what ships. Then
-`vendor/bin/phpcs` and `vendor/bin/phpstan` do not exist, and copying the jobs
-as they are gives `vendor/bin/phpcs: not found`. **Do not drop `--no-dev`
-from the deploy install.** That would ship phpstan, coder and the rest of
-`require-dev` to production. Add a separate install job for the QA jobs
-(section 2).
+**The question: does the CI `vendor/` ship?** The QA jobs need `require-dev`
+(`vendor/bin/phpcs`, `vendor/bin/phpstan`). Whether the existing composer job
+can provide it depends on what the deploy does with that `vendor/`:
+
+```bash
+grep -n -E "upload_vendors|exclude=/vendor|composer_options|deploy:vendors" deploy.php
+```
+
+- **The server rebuilds `vendor/` (the agency default).** Deployer's
+  `deploy:vendors` runs `composer install --no-dev` in the release, and the
+  upload either excludes `/vendor` (`upload_vendors` false) or rsyncs it and
+  lets that install prune the dev packages. The CI `vendor/` only runs
+  `vendor/bin/dep` on the runner. **Drop `--no-dev` from the existing composer
+  job and point the QA jobs at it.** A second install job would only cost a
+  full `composer install` per pipeline and protect nothing.
+- **The CI `vendor/` is what runs in production** (no install on the server,
+  or a server install without `--no-dev`). Keep `--no-dev` on that job, or
+  phpstan, coder and the rest of `require-dev` ship. Add a separate
+  `composer_qa` install for the QA jobs instead (section 2, variant B).
+
+Either way, copying the QA jobs onto a `--no-dev` artifact gives
+`vendor/bin/phpcs: not found`.
 
 Also check the stage list. The template uses a `syntax` stage between `build`
 and `deploy`; add it if it is missing.
@@ -43,30 +58,29 @@ and `deploy`; add it if it is missing.
 
 Match the project's existing style: runner `tags:`, per-environment job
 suffixes (`_prod`, `_preprod`) and the `only:`/`rules:` syntax. Below is the
-untagged, single-job form:
+untagged, single-job form.
+
+Variant A, the default (section 1, the server rebuilds `vendor/`): the existing
+composer job, with `--no-dev` removed and the contrib directories added to its
+artifacts.
 
 ```yaml
-# Quality checks get their own install: the composer job runs --no-dev, and its
-# vendor/ is the one that ships, so phpcs and phpstan cannot come from it.
-composer_qa:
+composer:
   stage: preparation
-  only:
-    - release
-    - master
+  # ...existing keys...
   script:
+    # Dev dependencies are installed on purpose: phpcs and phpstan come from
+    # this vendor/. It never ships, since deploy.php excludes it from the upload
+    # and the server runs its own composer install --no-dev.
     - composer install --optimize-autoloader --no-ansi --no-interaction --no-progress --no-scripts
   artifacts:
     paths:
       - vendor/
       - web/core/
+      # phpstan-drupal resolves contrib classes from these.
       - web/modules/contrib/
       - web/themes/contrib/
-    expire_in: 1 hour
-    when: always
-  cache:
-    paths:
-      - vendor/
-      - web/core/
+      # ...existing paths (scaffold files, etc.)...
 
 phpcs:
   stage: syntax
@@ -74,7 +88,7 @@ phpcs:
     - release
     - master
   dependencies:
-    - composer_qa
+    - composer
   script:
     - mkdir -p qa-reports
     - vendor/bin/phpcs --config-set installed_paths "vendor/drupal/coder/coder_sniffer,vendor/slevomat/coding-standard"
@@ -94,7 +108,7 @@ phpstan:
     - release
     - master
   dependencies:
-    - composer_qa
+    - composer
   script:
     - mkdir -p qa-reports
     - vendor/bin/phpstan analyse --configuration=phpstan.neon --no-progress --memory-limit=512M --error-format=json > qa-reports/phpstan-report.json || true
@@ -108,13 +122,35 @@ phpstan:
   allow_failure: false
 ```
 
+Variant B, only when the CI `vendor/` ships: leave the composer job alone and
+add a dedicated install, then use `composer_qa` in the QA jobs' `dependencies:`.
+
+```yaml
+# Quality checks get their own install: the composer job runs --no-dev, and its
+# vendor/ is the one that ships, so phpcs and phpstan cannot come from it.
+composer_qa:
+  stage: preparation
+  only:
+    - release
+    - master
+  script:
+    - composer install --optimize-autoloader --no-ansi --no-interaction --no-progress --no-scripts
+  artifacts:
+    paths:
+      - vendor/
+      - web/core/
+      - web/modules/contrib/
+      - web/themes/contrib/
+    expire_in: 1 hour
+    when: always
+```
+
 Why each piece is there:
 
-- `composer_qa` artifacts include `web/core/` because phpstan-drupal needs a
+- The install artifacts include `web/core/` because phpstan-drupal needs a
   Drupal root, and the contrib directories so that phpstan-drupal discovers
-  the same extensions as locally. Leave out the scaffold files: the QA jobs do
-  not need them.
-- The QA jobs list **only** `composer_qa` in `dependencies:`, so they do not
+  the same extensions as locally.
+- The QA jobs list **only** the install job in `dependencies:`, so they do not
   pull `.env` or `settings.php` artifacts they have no use for.
 - `--config-set installed_paths` is redundant when the dealerdirect installer
   ran, but harmless. Keep it: it is what makes the job work on a runner image
@@ -327,8 +363,15 @@ try {
 ## 4. Around the jobs
 
 - **`.gitignore`**: add `/qa-reports/`.
-- **The deploy job's `dependencies:`** must **not** include `composer_qa`.
-  Otherwise its dev `vendor/` overwrites the `--no-dev` one and ships.
+- **Variant A: the contrib artifacts reach the deploy job.** It depends on the
+  composer job, so it now receives `web/modules/contrib/` and
+  `web/themes/contrib/`, and an rsync of the tree uploads them for nothing
+  (the server install puts them back anyway). Add
+  `--exclude=/web/modules/contrib` and `--exclude=/web/themes/contrib` next
+  to `--exclude=/web/core` in `upload_options`.
+- **Variant B: the deploy job's `dependencies:`** must **not** include
+  `composer_qa`. Otherwise its dev `vendor/` overwrites the `--no-dev` one
+  and ships.
 - **What the deploy uploads.** The QA files (`phpcs.xml`, `phpstan.neon`, the
   two converters, `qa-reports/`) are tracked at the repo root, so a deploy
   that rsyncs the tree sends them to the servers. They sit outside the docroot,

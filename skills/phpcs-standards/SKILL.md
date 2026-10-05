@@ -15,8 +15,9 @@ description: >
   by module and records every behaviour-changing fix as a manual UAT step in
   the merge request. IMPORTANT: all commands MUST go through Makefile targets;
   phpcbf can discard every fix for a file silently, so a run is only clean
-  when phpcs prints "No violations were found"; the deploy install is usually
-  --no-dev, so the CI jobs need their own composer install.
+  when phpcs prints "No violations were found"; the CI jobs need
+  require-dev, so check whether the CI vendor/ ships before touching the
+  composer job's --no-dev.
 ---
 
 # PHP_CodeSniffer + PHPStan: set up, clear the custom code, wire the CI
@@ -306,10 +307,13 @@ make cr        # proves the container still compiles
 
 Follow `references/ci-pipelines.md`. The points that break a naive copy:
 
-- **The deploy install is `--no-dev`**, so `vendor/bin/phpcs` and `phpstan`
-  do not exist in its artifact. Add a separate `composer_qa` job for the QA
-  jobs. Never drop `--no-dev` from the install that ships, and never let the
-  deploy job depend on `composer_qa`.
+- **The QA jobs need `require-dev`; check whether the CI `vendor/` ships.**
+  When the server rebuilds it (Deployer `deploy:vendors` with
+  `composer install --no-dev`, the agency default), drop `--no-dev` from the
+  existing composer job and reuse it; exclude the contrib directories it now
+  carries from the upload. Only when the CI `vendor/` runs in production, keep
+  `--no-dev` there and add a separate `composer_qa` job the deploy never
+  depends on.
 - **`|| true` means the jobs never fail on a violation.** Say so when asked
   "will they pass?". The honest answer is "yes, and they cannot fail on
   violations", plus the actual counts from a local run of the job scripts.
@@ -384,9 +388,10 @@ say so under `## Vérification` and do not present the UAT as optional.
 - [ ] `php -l` clean on every touched file.
 - [ ] PHPStan, if asked: `make phpstan` ends with `[OK] No errors` at the
       chosen level, and phpcs is still clean afterwards.
-- [ ] CI, if asked: the deploy install is still `--no-dev`, and the deploy
-      job does not depend on `composer_qa`. The QA files are excluded from the
-      deploy upload, and every job script ran in the container.
+- [ ] CI, if asked: what runs in production is installed `--no-dev` (by the
+      server, or by a CI job the QA install does not touch). The QA files are
+      excluded from the deploy upload, and every job script ran in the
+      container.
 - [ ] `make cr` succeeds.
 - [ ] One commit per module; nothing unrelated staged.
 - [ ] Every behaviour-changing fix has a UAT line in the MR's
