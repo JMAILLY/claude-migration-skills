@@ -1,75 +1,76 @@
 # Verification harness — prove the SCSS migration changed no CSS
 
-Two Node scripts (plain `.mjs`, run on the host with `node`). One automates the
-`mixed-decls` reorder; the other proves the compiled CSS is semantically
-unchanged. Both are line/text based — the safety net is the semantic diff, not
-the reorder.
+Six Node scripts (plain `.mjs`). `compile.mjs` runs **inside the node
+container** (it needs the project's `sass` and `fast-glob`); the others only
+read/write files and run on the host with `node`.
 
-Run all `sass` compiles **inside the node container** (host `sass` CLI is often
-broken on Apple Silicon). Write outputs under the repo (mounted into the
-container) so the host can read them, then clean them up.
+| Script | Role |
+|---|---|
+| `compile.mjs` | compile every entrypoint (expanded, comments stripped) + tally ALL warnings by deprecation type |
+| `cssdiff.mjs` | computed value per individual selector, last-wins (catches value changes, missing/added rules) |
+| `strict.mjs` | order-aware: same rule sequence, same declarations, no reordered pair of interacting properties |
+| `culprits.mjs` | classify `mixed-decls` sites by the include that precedes them |
+| `reorder.mjs` | move nested-rule-emitting includes past the following plain-declaration run |
+| `hook.mjs` | turn a flagged site into the `@content`-slot form |
+
+Write everything under a scratch folder **inside the repo** (mounted into the
+container, e.g. `.cssdiff/`), never commit it, delete it at the end.
 
 ```bash
-DC="docker compose --project-directory . -f docker/compose/dev/docker-compose.yml exec -T node"
-# NOTE: do not stuff the compose command in a shell var if a command-rewriting
-# proxy mangles it — inline the full `docker compose … exec -T node …` instead.
+# Inline the compose command. In zsh a "$DC" variable is NOT word-split
+# ("no such file or directory: docker compose …"), and a command-rewriting
+# proxy may mangle it anyway.
+docker compose --project-directory . -f docker/compose/dev/docker-compose.yml exec -T node node .cssdiff/compile.mjs <sass-root> .cssdiff/golden
 ```
 
-## 1. reorder.mjs — move nested-rule-emitting includes to end of their decl run
+## 1. compile.mjs — every entrypoint + full warning tally
 
-Moves each `@include mixins.set-font-size(…)` / `@include mixins.fit-crop-element(…)`
-past the contiguous same-indent declaration run that follows it, so no bare
-declaration trails a nested rule. Safe *only* when the include emits no property
-the caller re-declares afterward — verify with the semantic diff (§2), then hand
--fix the flagged collisions with a `& {}` wrap.
+Globs every non-partial under `<sass-root>` (adapt the glob/ignore to the
+build's real groups), compiles expanded with `verbose: true` (otherwise
+repetitive warnings are truncated), strips comments (the parsers below choke on
+them), writes `<out>/<rel>.css` and `<out>.warnings.tsv`
+(`type  entry  file:line  message`).
 
 ```js
-import { readFileSync, writeFileSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import * as sass from 'sass';
+import fg from 'fast-glob';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 
-const root = process.argv[2]; // e.g. web/themes/custom/frontend/src/sass
-const files = execSync(`find ${root} -name '*.scss'`).toString().trim().split('\n');
-
-const isDecl = (t) =>
-  /;\s*$/.test(t) && !t.endsWith('{') &&
-  (/^[-a-zA-Z]+\s*:/.test(t) || /^@include\s/.test(t));
-const isTarget = (t) =>
-  /^@include\s+mixins\.(set-font-size|fit-crop-element)\b.*;\s*$/.test(t);
-
-let total = 0;
-for (const file of files) {
-  const lines = readFileSync(file, 'utf8').split('\n');
-  const out = [];
-  let moved = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i], t = line.trim();
-    if (!isTarget(t)) { out.push(line); continue; }
-    const indent = line.match(/^\s*/)[0];
-    let j = i + 1; const run = [];
-    while (j < lines.length) {
-      const l = lines[j];
-      if (l.trim() === '') { run.push(l); j++; continue; }
-      if (l.match(/^\s*/)[0] !== indent) break;   // dedent / deeper
-      if (!isDecl(l.trim())) break;               // nested opener / selector
-      run.push(l); j++;
-    }
-    while (run.length && run[run.length - 1].trim() === '') { run.pop(); j--; }
-    if (run.filter((l) => l.trim()).length === 0) { out.push(line); continue; }
-    out.push(...run, line); i = j - 1; moved++;
-  }
-  if (moved) { writeFileSync(file, out.join('\n')); total += moved;
-    console.log(`${moved}\t${file.replace(root + '/', '')}`); }
+const [base, out] = process.argv.slice(2);
+const files = (await fg(`${base}/**/*.scss`, { ignore: ['**/_*.scss'] })).sort();
+const counts = {}; const seen = []; let errors = 0;
+for (const f of files) {
+  const rel = path.relative(base, f).replace(/\.scss$/, '.css');
+  try {
+    const r = sass.compile(f, { style: 'expanded', charset: false, verbose: true, logger: {
+      warn(msg, o) {
+        const id = o.deprecationType?.id || (o.deprecation ? 'deprecation' : 'warn');
+        counts[id] = (counts[id] || 0) + 1;
+        const at = o.span ? `${o.span.url?.pathname.replace(/.*src\/sass\//, '')}:${o.span.start.line + 1}` : '';
+        seen.push(`${id}\t${rel}\t${at}\t${msg.split('\n')[0]}`);
+      },
+      debug() {} } });
+    mkdirSync(path.dirname(`${out}/${rel}`), { recursive: true });
+    writeFileSync(`${out}/${rel}`, r.css.replace(/\/\*[\s\S]*?\*\//g, ''));
+  } catch (e) { errors++; console.log(`ERROR ${rel}: ${e.message.split('\n').slice(0, 6).join(' | ')}`); }
 }
-console.log(`\nTotal reordered: ${total}`);
+writeFileSync(`${out}.warnings.tsv`, seen.join('\n'));
+console.log(`files=${files.length} errors=${errors}`, counts);
 ```
 
-## 2. cssdiff.mjs — computed style per individual selector
+Group the sites: `cut -f1,3 .cssdiff/cur.warnings.tsv | sort | uniq -c`.
 
-Parses two expanded CSS files, expands every comma-group into individual
-selectors, keys by `(@media/@supports context || selector)`, merges same-key
-blocks last-wins (so `& {}` rule-splitting and cascade order are transparent),
-and normalizes selector-list order. Prints `SEMANTIC DIFF` for any property whose
-computed value changed, `MISSING RULE` for a selector present in A but not B.
+## 2. cssdiff.mjs — computed value per individual selector
+
+Expands every comma-group into individual selectors, keys by
+`(@media/@supports context || selector)`, merges same-key blocks last-wins and
+normalizes selector-list order. Prints `SEMANTIC DIFF` for any property whose
+value changed, `MISSING RULE` for a selector present in A but not in B. Run it
+**both ways**: `B A` lists the rules that were *added*.
+
+Blind spot: it compares per property *name*, so `padding: 20px 0` swapping
+places with `padding-left: 16px` is invisible. That is what `strict.mjs` is for.
 
 ```js
 import { readFileSync } from 'node:fs';
@@ -79,6 +80,8 @@ function parse(css) {
   for (const c of css) {
     if (c === '{') { stack.push({ sel: buf.trim(), decls: [] }); buf = ''; cur = stack.at(-1); }
     else if (c === '}') {
+      const d = buf.trim();
+      if (cur && d.includes(':')) { const i = d.indexOf(':'); cur.decls.push([d.slice(0, i).trim(), d.slice(i + 1).trim()]); }
       if (cur) rules.push({ path: stack.map((s) => s.sel).join(' >> '), decls: cur.decls });
       stack.pop(); cur = stack.at(-1) || null; buf = '';
     } else if (c === ';') {
@@ -89,7 +92,6 @@ function parse(css) {
   return rules;
 }
 
-// key = at-rule context || individual selector; merge last-wins.
 function canon(rules) {
   const map = new Map();
   for (const r of rules) {
@@ -119,51 +121,264 @@ for (const [key, a] of A) {
 console.log(`\nDifferences: ${diffs}`);
 ```
 
-## 3. Procedure
+## 3. strict.mjs — order-aware check
 
-```bash
-# a) GOLDEN: pre-migration source (index version, still @import) compiled in place.
-cp -r <theme>/src/sass /tmp/work_sass                 # back up your migrated work
-git checkout -- <theme>/src/sass                      # restore index (session-start) version
-mkdir -p .cssdiff/golden
-for e in style ckeditor mail; do <DC> npx sass --no-source-map --quiet <theme>/src/sass/$e.scss .cssdiff/golden/$e.css; done
+Requires the same sequence of rules (context + selector list) and, per rule,
+the same multiset of declarations; then flags every pair of **interacting**
+declarations whose relative order changed (same property, shorthand/longhand
+such as `padding`/`padding-left`, `font`/`line-height`, `inset`/sides,
+`gap`/`row-gap`). Non-interacting permutations (`font-size` vs `line-height`)
+are counted as `permuted` but are not issues. `--normalize` sorts each
+selector list, for comparing against the golden after `@extend` reshuffles.
+It stops at the first rule-order mismatch — strip a known, accepted rule from
+a copy to check the rest.
 
-# b) FINAL: restore migrated work, compile.
-rm -rf <theme>/src/sass && cp -r /tmp/work_sass <theme>/src/sass
-mkdir -p .cssdiff/cur
-for e in style ckeditor mail; do <DC> npx sass --no-source-map --quiet <theme>/src/sass/$e.scss .cssdiff/cur/$e.css; done
+```js
+import { readFileSync } from 'node:fs';
 
-# c) strip comments, diff computed style per selector.
-for e in style ckeditor mail; do
-  perl -0pe 's{/\*.*?\*/}{}gs' .cssdiff/golden/$e.css > .cssdiff/golden/$e.nc.css
-  perl -0pe 's{/\*.*?\*/}{}gs' .cssdiff/cur/$e.css   > .cssdiff/cur/$e.nc.css
-  echo "== $e =="; node cssdiff.mjs .cssdiff/golden/$e.nc.css .cssdiff/cur/$e.nc.css | grep -v MISSING | tail
-done
-rm -rf .cssdiff                                       # clean up (never commit it)
+const args = process.argv.slice(2);
+const normalize = args.includes('--normalize');
+const [aF, bF] = args.filter((a) => !a.startsWith('--'));
+
+function parse(css) {
+  const rules = [], stack = []; let buf = '';
+  for (const c of css) {
+    if (c === '{') {
+      let sel = buf.trim().replace(/\s+/g, ' ');
+      if (normalize) sel = sel.split(/\s*,\s*/).sort().join(', ');
+      stack.push({ sel, decls: [] }); buf = '';
+    } else if (c === '}') {
+      const d = buf.trim();
+      if (stack.length && d.includes(':')) stack.at(-1).decls.push(d.replace(/\s+/g, ' '));
+      const r = stack.pop();
+      if (r && r.decls.length) rules.push({ key: [...stack.map((s) => s.sel), r.sel].join(' >> '), decls: r.decls });
+      buf = '';
+    } else if (c === ';') {
+      const d = buf.trim(); buf = '';
+      if (stack.length && d.includes(':')) stack.at(-1).decls.push(d.replace(/\s+/g, ' '));
+    } else buf += c;
+  }
+  return rules;
+}
+
+const prop = (d) => d.slice(0, d.indexOf(':')).trim().replace(/^-(webkit|moz|ms|o)-/, '');
+const EXTRA = { 'line-height': ['font'], top: ['inset'], right: ['inset'], bottom: ['inset'], left: ['inset'], 'row-gap': ['gap'], 'column-gap': ['gap'] };
+const conflicts = (x, y) => {
+  const p = prop(x), q = prop(y);
+  return p === q || p.startsWith(q + '-') || q.startsWith(p + '-') || (EXTRA[p] || []).includes(q) || (EXTRA[q] || []).includes(p);
+};
+
+const A = parse(readFileSync(aF, 'utf8')), B = parse(readFileSync(bF, 'utf8'));
+let issues = 0, permuted = 0;
+if (A.length !== B.length) { console.log(`RULE COUNT ${A.length} -> ${B.length}`); issues++; }
+for (let i = 0; i < Math.min(A.length, B.length); i++) {
+  const a = A[i], b = B[i];
+  if (a.key !== b.key) { console.log(`RULE ORDER #${i}: ${a.key}  <>  ${b.key}`); issues++; break; }
+  if (a.decls.join(';') === b.decls.join(';')) continue;
+  permuted++;
+  if ([...a.decls].sort().join(';') !== [...b.decls].sort().join(';')) {
+    console.log(`DECL SET @ ${a.key}\n  ${a.decls.join('; ')}\n  ${b.decls.join('; ')}`); issues++; continue;
+  }
+  const tag = (l) => { const seen = {}; return l.map((d) => `${d}#${(seen[d] = (seen[d] || 0) + 1)}`); };
+  const ta = tag(a.decls), tb = tag(b.decls), pos = Object.fromEntries(tb.map((d, j) => [d, j]));
+  for (let x = 0; x < ta.length; x++) for (let y = x + 1; y < ta.length; y++)
+    if (conflicts(ta[x], ta[y]) && pos[ta[x]] > pos[ta[y]]) {
+      console.log(`ORDER FLIP @ ${a.key}\n  "${ta[x]}" now after "${ta[y]}"`); issues++;
+    }
+}
+console.log(`rules=${A.length} permuted=${permuted} issues=${issues}`);
 ```
 
-## 4. Reading the output
+## 4. culprits.mjs — which include causes each mixed-decls site
 
-- **`SEMANTIC DIFF … prop: "X" -> "Y"`** — a real regression. The recurring one
-  is `max-width: 118px -> none` from reordering past `fit-crop-element` (which
-  sets `max-width: none`). Fix: keep the include first and `& {}`-wrap the
-  override.
-- **`MISSING RULE`** on long multi-context selectors — `@extend` cross-product
-  redundancy the module system dropped. Benign **iff** the short covering
-  selector is still present with the same declarations:
-  ```bash
-  grep -Fc '.paragraph--type--block-webform h3' .cssdiff/cur/style.nc.css   # > 0
-  ```
-  Sort missing selectors by descendant depth; if even the shallowest are 2+
-  level cross-context combos, they are pure redundancy (no element loses style).
-- **`Differences: 0`** on values (ignoring benign MISSING) → the migration is
-  provably iso-CSS. Ship it.
+Reads `<out>.warnings.tsv`, walks up from each warning line to the nearest
+same-indent `@include` (or a closing `}` = child rule). Adjust the mixin
+pattern and the sass root to the theme.
+
+```js
+import { readFileSync } from 'node:fs';
+
+const [tsv, base] = process.argv.slice(2); // .cssdiff/cur.warnings.tsv web/themes/custom/frontend/src/sass/
+const sites = [...new Set(readFileSync(tsv, 'utf8').trim().split('\n')
+  .filter((l) => l.startsWith('mixed-decls')).map((l) => l.split('\t')[2]))];
+const out = {};
+for (const s of sites) {
+  const [f, n] = s.split(':');
+  const lines = readFileSync(base + f, 'utf8').split('\n');
+  const ind = lines[n - 1].match(/^\s*/)[0].length;
+  let culprit = 'inside-mixin?';
+  for (let i = n - 2; i >= 0; i--) {
+    const t = lines[i]; if (!t.trim()) continue;
+    const li = t.match(/^\s*/)[0].length;
+    if (li < ind) break;
+    if (li > ind) continue;
+    if (t.trim() === '}') { culprit = 'child-rule'; break; }
+    const m = t.trim().match(/^@include\s+([\w.-]+)[^{]*;/);
+    if (m) { culprit = m[1]; break; }
+  }
+  (out[culprit] ||= []).push(s);
+}
+for (const [k, v] of Object.entries(out)) console.log(k, v.length, v.join(' '));
+```
+
+`inside-mixin?` = the warning points into the mixin itself (fix its internals);
+`child-rule` = move the declarations above the child (always exact).
+
+## 5. reorder.mjs — move includes past their trailing declaration run
+
+Moves each target include past the contiguous same-indent run of **plain
+declarations** that follows it (blank lines and `//` comments are carried
+along; the run stops at any `@include`, nested opener or indent change — an
+`@include` inside the run could itself emit nested rules). Exact for includes
+that emit only nested rules (`col`); for the others it is exact only when the
+run does not touch the mixin's properties — run `strict.mjs` and convert the
+flagged sites with `hook.mjs`.
+
+```js
+import { readFileSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+
+const root = process.argv[2]; // e.g. web/themes/custom/frontend/src/sass
+const files = execSync(`find ${root} -name '*.scss'`).toString().trim().split('\n');
+const isDecl = (t) => /^[-a-zA-Z]+\s*:[^{]*;\s*(\/\/.*)?$/.test(t);
+const isTarget = (t) =>
+  /^@include\s+mixins\.(set-font-size|wrapper|wrapper-custom|fit-crop-element|col)\b[^{]*;\s*(\/\/.*)?$/.test(t);
+
+let total = 0;
+for (const file of files) {
+  const lines = readFileSync(file, 'utf8').split('\n');
+  const out = []; let moved = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i], t = line.trim();
+    if (!isTarget(t)) { out.push(line); continue; }
+    const indent = line.match(/^\s*/)[0];
+    let j = i + 1; const run = [];
+    while (j < lines.length) {
+      const l = lines[j];
+      if (l.trim() === '' || /^\s*\/\//.test(l)) { run.push(l); j++; continue; }
+      if (l.match(/^\s*/)[0] !== indent || !isDecl(l.trim())) break;
+      run.push(l); j++;
+    }
+    while (run.length && (run.at(-1).trim() === '' || /^\s*\/\//.test(run.at(-1)))) { run.pop(); j--; }
+    if (!run.some((l) => isDecl(l.trim()))) { out.push(line); continue; }
+    out.push(...run, line); i = j - 1; moved++;
+  }
+  if (moved) { writeFileSync(file, out.join('\n')); total += moved; console.log(`${moved}\t${file.replace(root + '/', '')}`); }
+}
+console.log(`Total reordered: ${total}`);
+```
+
+## 6. hook.mjs — convert a flagged site to the `@content` slot
+
+Prerequisite: the mixin has `@content;` between its declarations and its
+nested rules (see SKILL.md Step 3). For each `file:line:N` (line = the include,
+N = how many declarations directly above it were moved there by `reorder.mjs`
+— read the original order with `git show HEAD:<file>`), wraps those N
+declarations into the include's block. Processes each file bottom-up so line
+numbers stay valid.
+
+```js
+import { readFileSync, writeFileSync } from 'node:fs';
+
+const root = 'web/themes/custom/frontend/src/sass/';
+const specs = process.argv.slice(2).map((s) => s.split(':')).map(([f, l, n]) => ({ f, l: +l, n: +n }));
+const byFile = {};
+for (const s of specs) (byFile[s.f] ||= []).push(s);
+for (const [f, list] of Object.entries(byFile)) {
+  const lines = readFileSync(root + f, 'utf8').split('\n');
+  for (const { l, n } of list.sort((a, b) => b.l - a.l)) {
+    const inc = lines[l - 1], indent = inc.match(/^\s*/)[0];
+    const run = lines.slice(l - 1 - n, l - 1);
+    for (const r of run)
+      if (r.match(/^\s*/)[0] !== indent || !/^[-a-zA-Z]+\s*:[^{]*;$/.test(r.trim()))
+        throw new Error(`${f}:${l} bad run line: ${r}`);
+    lines.splice(l - 1 - n, n + 1, inc.replace(/;\s*$/, ' {'), ...run.map((r) => '  ' + r), indent + '}');
+    console.log(`${f}:${l} wrapped ${n}`);
+  }
+  writeFileSync(root + f, lines.join('\n'));
+}
+```
+
+```bash
+node .cssdiff/hook.mjs nodes/_node.scss:16:4 layout/_footer.scss:72:9 …
+```
+
+## 7. Procedure
+
+```bash
+# a) GOLDEN — before running any migrator.
+mkdir -p .cssdiff   # + the scripts above
+docker compose … exec -T node node .cssdiff/compile.mjs <sass-root> .cssdiff/golden
+#    Forgot? Back up the work, `git checkout -- <sass-root>`, compile, restore.
+
+# b) Migrators + Step 2 fixes, then compile and diff every entrypoint both ways.
+docker compose … exec -T node node .cssdiff/compile.mjs <sass-root> .cssdiff/cur
+cd .cssdiff && for f in $(cd golden && find . -name '*.css' | sort); do
+  s=$(node cssdiff.mjs golden/$f cur/$f | grep -c SEMANTIC)
+  m=$(node cssdiff.mjs golden/$f cur/$f | grep -c MISSING)
+  x=$(node cssdiff.mjs cur/$f golden/$f | grep -c MISSING)
+  [ "$s$m$x" != "000" ] && echo "$f semantic=$s missing=$m added=$x"
+done; cd ..
+
+# c) Once only intended differences remain: freeze stage1.
+cp -r .cssdiff/cur .cssdiff/stage1
+
+# d) mixed-decls: culprits → mixin internals → reorder → compile → strict vs stage1
+node .cssdiff/culprits.mjs .cssdiff/cur.warnings.tsv <sass-root>/
+node .cssdiff/reorder.mjs <sass-root>
+docker compose … exec -T node node .cssdiff/compile.mjs <sass-root> .cssdiff/cur
+for f in $(cd .cssdiff/stage1 && find . -name '*.css'); do
+  r=$(node .cssdiff/strict.mjs .cssdiff/stage1/$f .cssdiff/cur/$f)
+  echo "$r" | grep -q 'issues=0$' || { echo "== $f"; echo "$r"; }
+done
+#    ORDER FLIP → add @content to the mixin, hook.mjs the site, recompile, re-check.
+
+# e) Final: strict vs golden with normalized selectors, cssdiff vs golden, warning count 0.
+node .cssdiff/strict.mjs --normalize .cssdiff/golden/<f> .cssdiff/cur/<f>
+rm -rf .cssdiff                                       # never commit it
+```
+
+## 8. Reading the output
+
+- **`SEMANTIC DIFF … prop: "X" -> "Y"`** — a real regression. Recurring causes:
+  - a whole component block differs (`padding`, `border-radius`, `font-*`) →
+    a mixin defined twice (SKILL.md 2e);
+  - `display: flex -> block`, `width: 100% -> auto`, `max-width: 118px -> none`
+    → a reorder past `wrapper`/`fit-crop-element` hit a collision → `@content`
+    slot, **not** `& {}` (it lands after the mixin's `@media` and beats it);
+  - an extender lost declarations (`font-family: undefined`) in one entrypoint
+    and gained them in another → a `@use` added for an `@extend` leaked a
+    module or the extend no longer reaches it (2b, 2c).
+- **`MISSING RULE`** — check what the missing selectors look like:
+  - `<context> <extender>` mirroring an existing `<context> .target` override
+    (e.g. `.node--reference .wysiwyg h4` next to `.node--reference .title4`)
+    → **regression**: the element loses a contextual override. `@use` the
+    context modules from the extending file (or a CSS-free partial loaded last).
+  - pure cross-context combinations whose declarations a shorter selector
+    already applies → benign redundancy. Confirm with
+    `grep -Fc '<short selector>' .cssdiff/cur/<f>`.
+- **`MISSING RULE` in the reverse run (added rules)** — a module emitted where
+  it was not before (leak), or `load-css` re-emitting a dependency
+  (`.ck .ck-content :root` — dead, never matches; accept and document).
+- **`ORDER FLIP`** — interacting declarations swapped; convert the site.
+- **`RULE ORDER` / `RULE COUNT`** in `strict.mjs` — a rule moved or appeared:
+  emission order changed (a `@use` loaded a module earlier) or a `& {}` wrap
+  split a rule.
+- **All zero** (apart from documented, user-approved differences) → ship.
 
 ## Gotchas learned the hard way
 
 - The naive brace parser mis-attributes declarations that sit right after an
-  inline `/* comment */` (keys get polluted with the comment). **Strip comments
-  first** (the `perl -0pe` step) — that removed dozens of phantom diffs.
+  inline `/* comment */`. **Strip comments first** — `compile.mjs` does it.
+- zsh: an unquoted `$VAR` holding a command or a file list is one word
+  (`ENAMETOOLONG`, `no such file or directory: docker compose …`); use arrays
+  (`E=(${(f)"$(find …)"})`) or inline the command. `echo ===` fails too
+  (`== not found`, `=cmd` expansion) — quote it.
+- `sed -n A,Bp` on a file without a trailing newline: `wc -l` is one short, so
+  a range computed from it drops the last line (e.g. a closing brace when
+  extracting a block into a partial). Check the tail with `od -c`.
+- `make npm-build` may also compile an admin theme and rewrite its committed
+  `.map` files — revert them before committing.
 - `git status --short` counts can drift by ±1 vs `git diff --name-only` when a
   working-tree edit happens to reproduce the staged content byte-for-byte.
 - A command-rewriting shell proxy may summarize/mangle `sass`/`grep` output — if
