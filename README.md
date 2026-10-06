@@ -31,7 +31,7 @@ expect.
 | [`jquery-4-migration`](skills/jquery-4-migration) | **Drupal** (theme) — jQuery knowledge is generic | jQuery 3 → 4 (as shipped by Drupal 11): removed APIs, native replacements, and a scoped local polyfill for third-party libs that are not ready. |
 | [`phpcs-standards`](skills/phpcs-standards) | **PHP** — any framework | Sets up or verifies PHP_CodeSniffer and PHPStan, then clears custom code to zero violations. **Asks which standard: Drupal + DrupalPractice, or PSR-12**, and which PHPStan level. Handles phpcbf's silent `FAILED TO FIX`, and turns every behaviour-changing fix into a manual UAT step in the merge request. Optionally adds the phpcs/phpstan GitLab CI jobs with SonarQube report converters, without shipping dev dependencies. |
 | [`php-docker-upgrade`](skills/php-docker-upgrade) | **PHP** — any framework | Bumps the PHP version of the containers (8.4, 8.5, later) — target version is a parameter — and updates the Composer platform pin. |
-| [`sass-migrator`](skills/sass-migrator) | **SCSS** — any stack | Migrates off deprecated Dart Sass syntax (`@import` → `@use`/`@forward`, division, `strict-unary`, `mixed-decls`) with a harness that proves the compiled CSS is byte-identical. |
+| [`sass-migrator`](skills/sass-migrator) | **SCSS** — any stack | Migrates off deprecated Dart Sass syntax (`@import` → `@use`/`@forward`, division, `strict-unary`, `mixed-decls`) with a harness that proves the compiled CSS is unchanged, selector by selector and in cascade order. |
 
 **Drupal-only** skills read `core.extension.yml`, run Drush, or manipulate
 Drupal config; they will not do anything useful elsewhere.

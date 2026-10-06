@@ -15,6 +15,38 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-10-06
+
+### Added
+
+- `sass-migrator`: order-aware verification. `strict.mjs` requires the same
+  rule sequence and declarations and flags reordered interacting properties
+  (shorthand/longhand, `font`/`line-height`, `inset`/sides), which the
+  last-wins `cssdiff.mjs` cannot see. The harness also gains `compile.mjs`
+  (every entrypoint, all warnings tallied by type with `verbose: true`),
+  `culprits.mjs` (mixed-decls sites by causing include) and `hook.mjs`.
+- `sass-migrator`: the `@content` slot for mixins that emit declarations and
+  nested rules, so callers that override one of their properties keep the
+  original cascade order.
+- `sass-migrator`: new failure modes from the ginger-sofreco run — nested
+  `@import` turned into `meta.load-css()` (extends do not reach it), mixins
+  defined twice across files (pre-scan included), lost contextual `@extend`
+  cross-products, migrator-unnamespaced default arguments, `max()` shims
+  bound to an unrelated module, the `if-function` migrator on an older Sass
+  pin, and zsh word-splitting of the entrypoint list.
+
+### Changed
+
+- `sass-migrator`: `& {}` is no longer recommended for mixed-decls
+  collisions. It lands after the mixin's `@media` and overrides it at that
+  breakpoint.
+- `sass-migrator`: a `MISSING RULE` is no longer assumed benign. A
+  `<context> <extender>` mirroring a `<context> .target` override is a lost
+  contextual override.
+- `sass-migrator`: `reorder.mjs` only carries plain declarations (an
+  `@include` in the run could emit nested rules), and both CSS parsers keep
+  a last declaration written without `;`.
+
 ## [1.3.2] — 2026-10-05
 
 ### Changed
