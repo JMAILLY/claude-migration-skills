@@ -165,6 +165,66 @@ back only the ones that bring an error back (typically the ones feeding a
 object (`view: \Drupal\views\ViewExecutable`). Do not run PHPStan once per
 annotation.
 
+### 5.1 Rector before the hand fixes
+
+Rector writes the type declarations PHPStan asks for wherever it can prove
+them (no `return` → `void`, a strict scalar/native/property return → that
+type). It respects parent and interface signatures, so it does not break an
+override. Run it once, before the catalogue above, instead of typing
+functions one by one.
+
+`rector/rector` is already there when `palantirnet/drupal-rector` was left by
+`php-deprecations-audit`; otherwise:
+
+```bash
+make composer c='show rector/rector' || make composer-require rector/rector --dev
+```
+
+`rector.php` at the repo root, committed with commit 3:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use Rector\Config\RectorConfig;
+
+return RectorConfig::configure()
+  ->withPaths([
+    __DIR__ . '/web/modules/custom',
+    __DIR__ . '/web/themes/custom',
+  ])
+  ->withFileExtensions(['php', 'module', 'theme', 'inc', 'profile'])
+  ->withAutoloadPaths([
+    __DIR__ . '/web/core',
+    __DIR__ . '/web/modules',
+    __DIR__ . '/web/themes',
+  ])
+  ->withSkip([
+    '*/node_modules/*',
+    '*/tests/*',
+  ])
+  ->withTypeCoverageLevel(10);
+```
+
+`.install` is left out of `withFileExtensions` on purpose: update hooks run
+on production during the deploy and get `@var` only. Adjust the paths to the
+project's custom directories, as for `phpcs.xml`.
+
+```bash
+make rector c='--dry-run --no-progress-bar' | tail -30   # rules applied + files changed
+make rector c='--no-progress-bar' | tail -5
+make phpcbf | grep -E 'FAILED TO FIX|A TOTAL OF'      # Rector prints new code PSR-style
+make phpstan c='--error-format=raw --no-progress' | sed 's/:.*:/ /' | sort | uniq -c | sort -rn | head
+```
+
+Raise `withTypeCoverageLevel()` in steps (10, 20, 30…) while the dry-run
+diff stays reviewable; stop at the level where it starts adding parameter
+types inferred from call sites, which can reject a value a caller outside
+the custom code passes. Rector changes are type declarations only: no UAT
+line unless a dry-run shows a parameter type on a hook, a public service
+method or a controller, which is then reviewed and UAT'd like a guard.
+
 ## 6. Conflicts with phpcs
 
 - `Hook implementations should not duplicate @param documentation`
@@ -191,6 +251,5 @@ exit
 make cr
 ```
 
-Then follow `verification.md`. Commit the PHPStan fixes separately from the
-phpcs ones when both passes ran in the same branch, or fold them into each
-module's commit, but never into the tooling/CI commit.
+Then follow `verification.md`. The PHPStan fixes, the Rector output,
+`phpstan.neon` and `rector.php` make commit 3 (SKILL.md Step 8).

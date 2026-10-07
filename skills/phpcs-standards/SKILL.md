@@ -11,9 +11,11 @@ description: >
   sonar-project.properties, or wants the custom modules cleaned up before a
   review or a major upgrade. Asks which standard (Drupal vs PSR-12), which
   severity (errors only vs errors + warnings), which PHPStan level, and
-  whether to add CI jobs (which branches, report-only vs gating). Fixes module
-  by module and records every behaviour-changing fix as a manual UAT step in
-  the merge request. IMPORTANT: all commands MUST go through Makefile targets;
+  whether to add CI jobs (which branches, report-only vs gating). Fixes the
+  whole tree one sniff / error shape at a time, uses Rector for the mechanical
+  PHPStan type fixes, commits exactly three times (phpcbf, phpcs, phpstan),
+  and records every behaviour-changing fix as a manual UAT step in the merge
+  request. IMPORTANT: all commands MUST go through Makefile targets;
   phpcbf can discard every fix for a file silently, so a run is only clean
   when phpcs prints "No violations were found"; the CI jobs need
   require-dev, so check whether the CI vendor/ ships before touching the
@@ -27,7 +29,8 @@ Four jobs in one skill. Each one can be asked for on its own:
 1. **Set up / verify** the toolchain (dependencies, `phpcs.xml`,
    `phpstan.neon`, Makefile targets) so `make phpcs`, `make phpcbf` and
    `make phpstan` are trustworthy.
-2. **Clear the phpcs violations** module by module, without breaking the site.
+2. **Clear the phpcs violations** across the custom tree, without breaking the
+   site.
 3. **Clear the PHPStan errors** at the chosen level (`references/phpstan.md`).
 4. **Add the CI jobs**: phpcs and phpstan in GitLab CI, with SonarQube report
    converters and the deploy adjustments they need
@@ -36,8 +39,35 @@ Four jobs in one skill. Each one can be asked for on its own:
 > ⚠️ **This is not a cosmetic-only task.** On a real Drupal codebase, the
 > `DrupalPractice` sniffs force dependency injection, method renames and
 > `t()` routing — changes that *can* break behaviour. Those are applied, but
-> **isolated in their own commit and paired with a mandatory manual UAT entry**
-> in the MR. See `references/risky-sniffs-uat.md`.
+> **paired with a mandatory manual UAT entry** in the MR, naming the file and
+> the change so the reviewer can find it in the diff. See
+> `references/risky-sniffs-uat.md`.
+
+## Token budget: keep the session lean
+
+A standards pass is long and loop-heavy: every tool call re-reads the whole
+conversation, so its cost grows with *turns × context size*, not with the
+size of one output. A run on ginger-sofreco that chained the D11 campaign,
+four review/MR rounds and this skill in one conversation reached 830 turns on
+a 560k-token context. Rules:
+
+- **Start from a clean conversation.** If the current one already carries
+  another campaign (an upgrade, reviews, MRs), tell the user to `/clear` and
+  re-invoke the skill before Step 1. Do not start the loop on a big context.
+- **No subagent per module.** Each one reloads the skill, the references and
+  the files. Work in the main session, one sniff / error shape across the
+  whole tree (Steps 3 and 5).
+- **Small outputs only.** Whole-tree runs use `--report=summary` or
+  `--report=source`; a full report only on one path, piped through
+  `| head -60`. PHPStan uses `--error-format=raw --no-progress` and is
+  grouped (`references/phpstan.md` §4). `git diff --stat`, not `git diff`,
+  unless a hunk is actually being reviewed.
+- **Let the tools write the mechanical fixes.** phpcbf for style, Rector for
+  types (Step 5). Hand edits are for what neither can do.
+- **Re-run per category, not per edit.** One phpcs/PHPStan run after a whole
+  category is fixed, not after each file.
+- **Read a reference only when its step starts**, and only the section you
+  need.
 
 ## Golden rule: everything goes through the Makefile
 
@@ -48,6 +78,7 @@ Never run `phpcs`, `phpcbf`, `phpstan`, `composer` or `drush` on the host.
 | Check standards | `make phpcs c='<args>'` |
 | Autofix | `make phpcbf c='<args>'` |
 | Static analysis | `make phpstan c='<args>'` |
+| Type fixes | `make rector c='<args>'` |
 | Add a dev dependency | `make composer-require <pkg> --dev` |
 | Generic Drush command | `make drush c='<cmd>'` |
 | Clear caches | `make cr` |
@@ -169,6 +200,10 @@ phpcbf:
 ## phpstan: Static analysis — make phpstan [c='<args>']
 phpstan:
 	$(EXEC_PHP) vendor/bin/phpstan analyse --memory-limit=1G $(c)
+
+## rector: Automated refactoring — make rector [c='<args>']
+rector:
+	$(EXEC_PHP) vendor/bin/rector process $(c)
 ```
 
 If the targets exist but hardcode no `$(c)`, add it — the whole fixing loop
@@ -182,16 +217,15 @@ runs. The only reliable signal is a re-run of `phpcs`.
 Dependencies, `phpstan.neon` template, and the PHPStan-1 ignore patterns
 that silently match nothing under PHPStan 2: `references/phpstan.md` §1–3.
 
-## Step 2 — Baseline, per module
+## Step 2 — Baseline
 
 Take the inventory before touching anything, and keep it: it is what proves
 progress and what the MR reports.
 
 ```bash
-make phpcs c='--report=summary'                       # global, per file
+make phpcs c='--report=summary' | tail -5             # global totals
 make phpcs c='--report=source'                        # violations grouped by sniff
-make phpcs c='-n --report=summary'                    # errors only
-make phpcs c='web/modules/custom/<module>'            # one module
+make phpcs c='-n --report=source'                     # errors only
 ```
 
 `--report=source` is the one that drives the plan: it tells you which sniffs
@@ -200,57 +234,56 @@ dependency-injection job. Cross-check it against
 `references/risky-sniffs-uat.md` and announce the risky categories **before**
 starting, not after.
 
-Then order the work: **one module at a time**, smallest first, so the first
-commits are easy to review and the loop is proven before it meets the hard
-modules.
+## Step 3 — The fixing loop (whole tree)
 
-## Step 3 — The fixing loop (per module)
+The work is ordered by tool and by sniff, not by module: that is what gives
+the three commits of Step 8.
 
-For each module, in this order. Do not move to the next module until the
-current one prints `No violations were found`.
+### 3.1 phpcbf, once, on the whole tree → commit 1
 
 ```bash
-# 1. Autofix
-make phpcbf c='web/modules/custom/<module>'
+make phpcbf | grep -E 'FAILED TO FIX|A TOTAL OF'
 ```
 
-**2. Read the output table, not the summary.** A line
+**A `FAILED TO FIX` line** means phpcbf wrote **nothing at all** for that
+file — every fix it computed was discarded — while the footer still prints an
+encouraging `A TOTAL OF N ERRORS WERE FIXED`. Trusting that footer is how 1375
+violations hide behind a file that looks done. Unblock it with
+`references/phpcbf-unblocking.md`, re-run phpcbf, and repeat until no
+`FAILED TO FIX` line is left.
 
-```
-FAILED TO FIX  web/modules/custom/<module>/src/Foo.php
-```
+Then `php -l` (below) and **commit 1** with the phpcs tooling (Step 8). This
+commit holds only what phpcbf wrote, plus the minimal unblocking edits: the
+reviewer can skim it.
 
-means phpcbf wrote **nothing at all** for that file — every fix it computed was
-discarded — while the footer still prints an encouraging
-`A TOTAL OF N ERRORS WERE FIXED`. Trusting that footer is how 1375 violations
-hide behind a file that looks done. Unblock it with
-`references/phpcbf-unblocking.md`, then re-run.
+### 3.2 phpcs by hand, one sniff at a time → commit 2
 
 ```bash
-# 3. What is left for a human
-make phpcs c='web/modules/custom/<module>'
+make phpcs c='--report=source'                        # what is left, by sniff
+make phpcs c='--sniffs=<Sniff.Code> --report=summary' # the files for one sniff
 ```
 
-**4. Fix by hand, cosmetic first**, one category across the whole module at a
-time (all missing docblocks, then all long lines, then all naming) — never
-file-by-file mixing categories. It keeps the diff reviewable and it keeps the
-commit honest.
+**Fix one sniff across the whole tree at a time, cosmetic first** (all missing
+docblocks, then all long lines, then all naming), never file by file mixing
+categories. Re-run phpcs once per sniff, not once per file.
 
-**5. Risky categories last**, one at a time, following
+**Risky categories last**, one at a time, following
 `references/risky-sniffs-uat.md`. Each one produces a UAT entry (Step 4).
 
+Done when `make phpcs` prints `No violations were found`; then `php -l`,
+`make cr`, and **commit 2**.
+
+### `php -l` on the touched files
+
 ```bash
-# 6. Prove it
 make shell
-for f in $(git diff --name-only --diff-filter=ACM | grep -E '\.(php|module|inc|install|theme|profile)$'); do php -l "$f"; done
+for f in $(git diff --name-only --diff-filter=ACM | grep -E '\.(php|module|inc|install|theme|profile)$'); do php -l "$f" | grep -v '^No syntax errors'; done
 exit
-make phpcs c='web/modules/custom/<module>'   # must print: No violations were found
 ```
 
 `php -l` is not optional: phpcbf and hand-editing docblocks both touch syntax,
-and a parse error in a `.module` file takes the whole site down.
-
-**7. Commit the module** (Step 8).
+and a parse error in a `.module` file takes the whole site down. Run it
+before each commit, on the files the commit touches.
 
 ## Step 4 — Behaviour-changing fixes → a UAT entry, every time
 
@@ -270,24 +303,33 @@ UAT lives in the MR and nowhere else). Each entry states:
 `references/risky-sniffs-uat.md` maps each sniff family to what it can break
 and to the UAT it demands. Use it as the checklist; do not invent the mapping.
 
-## Step 5 — The PHPStan pass
+## Step 5 — The PHPStan pass → commit 3
 
-Only once phpcs is clean. Follow `references/phpstan.md`:
+Only once phpcs is clean and commit 2 is done. Follow `references/phpstan.md`:
 
 1. **Baseline** grouped by message (§4), not by file. On Drupal at level
    `max`, untyped hook parameters and `mixed` values usually dominate
    (offset reads on `mixed` are ignored by the template `phpstan.neon`).
-2. **Fix one error shape at a time** across all files, from the catalogue (§5).
+2. **Rector first** for the type shapes it can infer (missing return types,
+   `void`, types read from strict returns or typed properties):
+   `references/phpstan.md` §5.1. Dry-run, read the diff stat, apply, then
+   `make phpcbf` — Rector prints new code in its own style — and re-run the
+   PHPStan baseline. It usually removes the bulk of the "no return type"
+   errors in one call instead of one hand edit per function.
+3. **Fix one remaining error shape at a time** across all files, from the
+   catalogue (§5).
    The catalogue says which fixes change runtime behaviour (`instanceof` and
    `is_array()` guards, arrays built locally). Each of those gets a UAT line,
    exactly as in Step 4.
-3. **`.install` / update hooks get `@var` only.** They run during the deploy,
-   on production.
-4. **Re-run phpcs.** PHPStan fixes add `use` lines, `@var` tags and
+4. **`.install` / update hooks get `@var` only.** They run during the deploy,
+   on production. Rector skips them (§5.1).
+5. **Re-run phpcs.** PHPStan fixes add `use` lines, `@var` tags and
    `@param`s, and DrupalPractice forbids `@param` on hook implementations, so
    use inline `@var` instead (§6).
-5. `make phpstan` must end with `[OK] No errors`, and `make phpcs` must still
-   be clean.
+6. `make phpstan` must end with `[OK] No errors`, and `make phpcs` must still
+   be clean. Then Step 6 and **commit 3**: the PHPStan fixes, the Rector
+   output, phpcs corrections they required, `phpstan.neon`, and the CI files
+   when Step 7 ran.
 
 ## Step 6 — Verify before committing
 
@@ -298,7 +340,7 @@ controller/form, `createInstance()` on every plugin, one real read per
 refactored service, and the trap of modules absent from
 `core.extension.yml`).
 
-Minimum, after every module that had a risky fix:
+Minimum, before commit 2 and commit 3:
 
 ```bash
 make cr        # proves the container still compiles
@@ -326,39 +368,42 @@ Follow `references/ci-pipelines.md`. The points that break a naive copy:
   parse the YAML, and `php -l` the `deploy.php`. The jobs have not run on
   GitLab until the first pipeline on a matching branch; that goes in the UAT.
 
-## Step 8 — Git: one commit per module, one Draft MR
+## Step 8 — Git: exactly three commits, one Draft MR
 
-**One commit per module**, so the reviewer can read the branch module by module
-and so a regression can be bisected to a single module.
+**Three commits, one per tool, in this order.** No per-module commits, no
+separate tooling commit, no fix-up commits. A late fix goes into the commit
+it belongs to: `git commit --amend` when that is the last one, otherwise
+`git commit --fixup=<sha>` then
+`GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash <sha>~1`.
 
-```
-style(<module>: #<ticket>): coding standards
-refactor(<module>: #<ticket>): inject the <x> dependencies
-```
+| # | Contents | Example message |
+|---|---|---|
+| 1 | phpcbf output (Step 3.1), the unblocking edits, `phpcs.xml`, the Makefile targets, `drupal/coder` in `composer.json`/`composer.lock`, `.gitignore` | `style(qa: #<ticket>): apply phpcbf autofixes` |
+| 2 | hand fixes for phpcs (Step 3.2), risky ones included | `style(qa: #<ticket>): fix the remaining phpcs violations` |
+| 3 | Rector output + PHPStan fixes (Step 5), `phpstan.neon`, `rector.php`, their dev dependencies, and the CI files when Step 7 ran | `refactor(qa: #<ticket>): fix the phpstan errors at level <n>` |
 
-Use `style(...)` when the module needed only cosmetic fixes, and split the
-risky work into its own `refactor(...)` / `fix(...)` commit for that module —
-that separation is what makes the UAT entry reviewable against a diff.
+Commit 1 is mechanical and skimmable; commits 2 and 3 are where the review
+happens. The risky fixes are not isolated in their own commits any more, so
+each UAT line names the **file and the change** (`gm_search/src/Form/Foo.php:
+search dependencies injected`) for the reviewer to find it in the diff.
 
-The tooling goes in **its own commit, first**: `phpcs.xml`, `phpstan.neon`,
-the Makefile targets, and, when Step 7 ran, the CI jobs, converters,
-`sonar-project.properties`, `.gitignore` and the deploy excludes. Follow the
-repo's commit format when it has one (e.g. `chore(qa-#<ticket>) : …`) rather
-than the examples above.
+Skip a commit only when its step had nothing to do (phpstan not asked, or
+phpcbf found nothing), and say so. Follow the repo's commit format when it has
+one (e.g. `chore(qa-#<ticket>) : …`) rather than the examples above.
 
 - **If `gm:merge-request` is available**, use it for the branch, the push and
   the MR (it carries the team's conventions: branch `chore/<ticket>-phpcs`,
   Draft MR, French description, the self-hosted GitLab host). It commits once by
-  default — here you commit per module yourself, then let it push and open the
-  MR.
-- **Otherwise**, plain git: branch off the integration branch, commit per
-  module, push, and open the MR with `glab` if authenticated.
+  default — here the three commits are already made, so let it only push and
+  open the MR.
+- **Otherwise**, plain git: branch off the integration branch, make the three
+  commits, push, and open the MR with `glab` if authenticated.
 
-Stage explicitly, never `git add -A`:
+Stage explicitly, never `git add -A`, and check with the stat, not the diff:
 
 ```bash
-git add web/modules/custom/<module>
-git diff --cached --name-only    # must contain only that module
+git add web/modules/custom web/themes/custom phpcs.xml Makefile …
+git diff --cached --stat | tail -3
 ```
 
 The MR description follows the team template; the collected UAT entries go
@@ -394,7 +439,8 @@ say so under `## Vérification` and do not present the UAT as optional.
       excluded from the deploy upload, and every job script ran in the
       container.
 - [ ] `make cr` succeeds.
-- [ ] One commit per module; nothing unrelated staged.
+- [ ] Exactly three commits — phpcbf, phpcs, phpstan — nothing unrelated
+      staged.
 - [ ] Every behaviour-changing fix has a UAT line in the MR's
       `### UAT manuelle`, with a concrete path and an expected result.
 - [ ] The MR is a **Draft**; UAT and "mark Ready" are the user's to do.
@@ -408,6 +454,10 @@ say so under `## Vérification` and do not present the UAT as optional.
   make a count go down. If a sniff is genuinely wrong for this project, say so
   and let the user decide.
 - Do not mix a standards pass with a functional change that no sniff asked for.
+- Do not add PHP-CS-Fixer. phpcbf is already the fixer for the phpcs
+  standard; PHP-CS-Fixer has no maintained Drupal rule set and its PSR-style
+  output (indentation, braces, docblocks) is rewritten back by phpcbf, so it
+  only adds a loop. On a PSR-12 project, phpcbf covers it too.
 - Do not lower the PHPStan level, generate a `phpstan-baseline.neon`, add an
   `ignoreErrors` entry beyond the template's or a `@phpstan-ignore` for
   custom-code errors, or

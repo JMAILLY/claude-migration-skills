@@ -15,6 +15,29 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-10-07
+
+### Added
+
+- `phpcs-standards`: a Rector pass (`references/phpstan.md` §5.1, `make rector`)
+  writes the type declarations PHPStan asks for before the hand fixes, with a
+  `rector.php` template that leaves `.install` files out.
+- `phpcs-standards`: a token-budget section — start from a clean conversation,
+  no subagent per module, summary/source reports and `git diff --stat` only,
+  one re-run per category. A ginger-sofreco run that chained the D11 campaign
+  and this skill in one conversation reached 830 turns on a 560k context.
+
+### Changed
+
+- `phpcs-standards`: exactly three commits — phpcbf output (with the phpcs
+  tooling), the hand phpcs fixes, the Rector + PHPStan fixes (with
+  `phpstan.neon`, `rector.php` and the CI files) — instead of a tooling commit
+  plus one or two commits per module. The work runs over the whole tree, one
+  sniff / error shape at a time; risky fixes stay UAT'd, with each UAT line
+  naming the file and the change.
+- `phpcs-standards`: PHP-CS-Fixer is a non-goal (no Drupal rule set, its
+  output is rewritten back by phpcbf).
+
 ## [1.4.0] — 2026-10-06
 
 ### Added
