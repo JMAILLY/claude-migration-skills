@@ -32,7 +32,8 @@ and the error count goes up tenfold:
 ```
 
 phpstan-drupal needs a real Drupal root: `web/core` must exist next to
-`vendor/`. That matters in CI (see `ci-pipelines.md`).
+`vendor/`. That matters in CI (the `php-standards` skill's
+`references/ci-pipelines.md`).
 
 ## 2. `phpstan.neon` at the repo root
 
@@ -126,8 +127,8 @@ one has a mechanical fix.
 ## 5. The fix catalogue
 
 Apply one shape across all files at a time, cosmetic first, as with phpcs.
-The "Runtime change" column decides whether a UAT line is owed (Step 4 of
-SKILL.md).
+The "Runtime change" column decides whether a UAT line is owed (SKILL.md,
+step 4).
 
 | Error | Fix | Runtime change |
 |---|---|---|
@@ -143,7 +144,7 @@ SKILL.md).
 | `parse_url()` returns `array\|false` | `is_array($parse) && ...` | none, except for malformed URLs that used to warn |
 | `submitForm()` with `return parent::submitForm(...)` once typed `: void` | drop the `return`: returning a void call from a `void` function is a compile error | none |
 | `?Type` return added to a function that can fall off its end (`hook_help()`) | add an explicit `return NULL;`: falling off a `?Type` function is a `TypeError` | none once the return is there. **Fatal if it is forgotten**: `php -l` does not catch it |
-| Unused variable whose right-hand side is a call | delete only if the call has no side effect (`getAliasByPath()` is a pure lookup; `Node::load()` warms a cache) | see `risky-sniffs-uat.md` |
+| Unused variable whose right-hand side is a call | delete only if the call has no side effect (`getAliasByPath()` is a pure lookup; `Node::load()` warms a cache) | see the `phpcs` skill's `references/risky-sniffs-uat.md` |
 | Anything in a `.install` / update hook | `@var` annotations only: no guards, no restructuring | must be none. This code runs during the deploy, on production |
 
 **Prefer `@var` when the runtime shape is guaranteed** (render arrays,
@@ -251,5 +252,6 @@ exit
 make cr
 ```
 
-Then follow `verification.md`. The PHPStan fixes, the Rector output,
-`phpstan.neon` and `rector.php` make commit 3 (SKILL.md Step 8).
+Then follow the `php-standards` skill's `references/verification.md`. The
+PHPStan fixes, the Rector output, `phpstan.neon` and `rector.php` make
+commit 3 (SKILL.md, step 7).

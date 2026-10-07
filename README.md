@@ -29,13 +29,16 @@ expect.
 | [`php-deprecations-audit`](skills/php-deprecations-audit) | **Drupal** | Audits and fixes deprecated APIs in custom code with `upgrade_status` + `drupal-rector` + PHPStan, looping until zero. Replayable for the next major. |
 | [`gulp-to-vite`](skills/gulp-to-vite) | **Drupal** (theme) | Gulp → Vite build migration that leaves `*.libraries.yml` untouched, with the dev HMR wiring and the Drupal/Apache caches that must be off for it to work. |
 | [`jquery-4-migration`](skills/jquery-4-migration) | **Drupal** (theme) — jQuery knowledge is generic | jQuery 3 → 4 (as shipped by Drupal 11): removed APIs, native replacements, and a scoped local polyfill for third-party libs that are not ready. |
-| [`phpcs-standards`](skills/phpcs-standards) | **PHP** — any framework | Sets up or verifies PHP_CodeSniffer and PHPStan, then clears custom code to zero violations. **Asks which standard: Drupal + DrupalPractice, or PSR-12**, and which PHPStan level. Handles phpcbf's silent `FAILED TO FIX`, and turns every behaviour-changing fix into a manual UAT step in the merge request. Optionally adds the phpcs/phpstan GitLab CI jobs with SonarQube report converters, without shipping dev dependencies. |
+| [`php-standards`](skills/php-standards) | **PHP** — any framework | Orchestrator for a coding-standards campaign: asks the standard (**Drupal + DrupalPractice, or PSR-12**), the severity, the PHPStan level, CI and the ticket once, sets up phpcs, then routes to the three passes below — one commit each, one conversation each. Re-entrant: re-invoke it after each `/clear`, it reads the repo state and resumes. Owns the phpcs/phpstan GitLab CI jobs (SonarQube report converters, no dev dependencies shipped) and the Draft MR, whose UAT is rebuilt from the commit bodies. |
+| [`phpcbf`](skills/phpcbf) | **PHP** — any framework | Pass 1: one phpcbf run over the custom tree, unblocks every silent `FAILED TO FIX` file. Commit 1. |
+| [`phpcs`](skills/phpcs) | **PHP** — any framework | Pass 2: hand fixes one sniff at a time, risky `DrupalPractice` sniffs last, each behaviour-changing fix recorded as a manual UAT step. Commit 2. |
+| [`phpstan`](skills/phpstan) | **PHP** — any framework | Pass 3: PHPStan at `max` or a chosen level, Rector for the inferable types, one error shape at a time, UAT for runtime-changing guards. Commit 3. |
 | [`php-docker-upgrade`](skills/php-docker-upgrade) | **PHP** — any framework | Bumps the PHP version of the containers (8.4, 8.5, later) — target version is a parameter — and updates the Composer platform pin. |
 | [`sass-migrator`](skills/sass-migrator) | **SCSS** — any stack | Migrates off deprecated Dart Sass syntax (`@import` → `@use`/`@forward`, division, `strict-unary`, `mixed-decls`) with a harness that proves the compiled CSS is unchanged, selector by selector and in cascade order. |
 
 **Drupal-only** skills read `core.extension.yml`, run Drush, or manipulate
 Drupal config; they will not do anything useful elsewhere.
-**PHP / SCSS** skills only need the Docker + Makefile setup — `phpcs-standards`
+**PHP / SCSS** skills only need the Docker + Makefile setup — `php-standards`
 explicitly asks whether to apply the Drupal standard or PSR-12, and
 `sass-migrator` never looks at the framework at all.
 
@@ -110,7 +113,10 @@ Run Claude Code **at the project root**, then invoke a skill:
 /jquery-4-migration      # jQuery 3 → 4
 /gulp-to-vite            # Gulp → Vite front build
 /sass-migrator           # SCSS modernization
-/phpcs-standards         # phpcs/phpstan setup + zero-violation pass (+ CI jobs)
+/php-standards           # coding-standards campaign: setup, then routes to the passes (+ CI jobs, MR)
+/phpcbf                  # pass 1: phpcbf autofix
+/phpcs                   # pass 2: phpcs hand fixes + UAT
+/phpstan                 # pass 3: PHPStan at max or a chosen level
 ```
 
 They also trigger on plain description — "migrate the theme to jQuery 4", "clean

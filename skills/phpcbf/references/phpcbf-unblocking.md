@@ -79,8 +79,9 @@ make phpcs c='web/modules/custom/<module>/src/Bar.php --report=source'
 Then, in order:
 
 1. **Hand-edit the blockers** in that file — banners, commented-out code. They
-   go into commit 1 with the phpcbf output; list them in the MR description so
-   the reviewer knows which hunks in that commit are not mechanical.
+   go into commit 1 with the phpcbf output; list them under "Not mechanical"
+   in its body so the reviewer knows which hunks in that commit are not
+   mechanical.
 2. **Re-run phpcbf on that single file.** If it converges, done.
 3. **If it still fails, run one sniff at a time.** Each sniff converges alone
    even when the full set does not:

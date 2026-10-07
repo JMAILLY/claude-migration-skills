@@ -15,6 +15,36 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-10-07
+
+### Changed
+
+- **Breaking:** `phpcs-standards` is split into an orchestrator, `php-standards`,
+  and three pass skills, `phpcbf`, `phpcs` and `phpstan`, one commit each.
+  Each pass runs in its own conversation and ends by proposing `/clear` then
+  `/php-standards`, so the loop never runs on a large context. A campaign
+  started with `phpcs-standards` resumes with `/php-standards`: it reads the
+  existing commits and `phpcs.xml`.
+- The references moved with their pass: `phpcbf-unblocking.md` → `phpcbf`,
+  `risky-sniffs-uat.md` → `phpcs`, `phpstan.md` → `phpstan`;
+  `ci-pipelines.md` and `verification.md` stay in `php-standards`.
+- The CI jobs are amended into the last QA commit instead of being part of
+  the phpstan commit, so they also work when PHPStan is not run.
+
+### Added
+
+- `php-standards`: the campaign state lives in the repo, not in the
+  conversation — standard and severity in `phpcs.xml` (errors only now sets
+  `warning-severity` to 0 instead of passing `-n` everywhere), the answers,
+  baselines, the pass in progress and the uncommitted UAT lines in
+  `.git/php-standards.md`, and the final counts and UAT lines in the commit
+  bodies, from which the MR's `### UAT manuelle` and `## Vérification` are
+  rebuilt.
+- `php-standards`: a routing step that detects which passes are committed or
+  interrupted and invokes the next one.
+- `phpcs` / `phpstan`: a pass interrupted by a `/clear` resumes from the
+  working tree and the pending UAT lines in the notes file.
+
 ## [1.5.0] — 2026-10-07
 
 ### Added

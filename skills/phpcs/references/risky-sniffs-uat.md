@@ -6,7 +6,8 @@ what methods are called. Everything below has broken a real site.
 
 **Rule: one risky category, in one module, = one UAT line in the MR**, naming
 the file and the change so the reviewer finds it in commit 2 or 3. The risky
-fixes do not get their own commits (SKILL.md Step 8).
+fixes do not get their own commits: the line goes to the notes file, then to
+the commit body, then to the MR (`php-standards` skill).
 
 ## The catalogue
 
