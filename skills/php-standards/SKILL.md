@@ -52,6 +52,12 @@ and the whole standards pass in one conversation reached 830 turns on a
   `phpcbf` pass in the same conversation.
 - If the current conversation already carries other work, tell the user to
   `/clear` and re-invoke before Step 1.
+- **No subagents, ever.** Never call the Agent or Workflow tool in any pass: not per module, not per sniff, not in parallel, not one sequential
+  helper, not "to save context". Each subagent reloads the system prompt,
+  every tool definition and the files, then its diff is re-read to verify
+  it, so the cost multiplies. Do every fix yourself in this conversation;
+  slower is fine. When the context grows, the answer is `/clear` + resume,
+  never delegation.
 
 ## Where the state lives
 

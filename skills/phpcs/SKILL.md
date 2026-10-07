@@ -51,7 +51,13 @@ severity is in `phpcs.xml`; do not add `-n`.
   only on one path, through `| head -60`.
 - **One sniff across the whole tree at a time**, one re-run per sniff, never
   file by file mixing categories.
-- No subagent per module: each one reloads the skill and the files.
+- **No subagents, ever.** Never call the Agent or Workflow tool during this
+  pass: not per module, not per sniff, not in parallel, not one sequential
+  helper, not "to save context". Each subagent reloads the system prompt,
+  every tool definition and the files, then its diff is re-read to verify
+  it, so the cost multiplies. Do every fix yourself in this conversation;
+  slower is fine. When the context grows, the answer is `/clear` + resume,
+  never delegation.
 - `git diff --stat`, not `git diff`, unless a hunk is under review.
 - If the context still grows large mid-pass, write the pending UAT lines to
   the notes file and propose `/clear` + `/php-standards`: the pass resumes
