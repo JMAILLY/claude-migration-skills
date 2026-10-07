@@ -64,7 +64,7 @@ something real, turn that into one sentence of comment and delete the rest.
   fixer wants to re-indent.
 - Heredoc/nowdoc bodies near a `ScopeIndent` violation — the fixer counts the
   heredoc content as code.
-- Files with mixed line endings (CRLF): normalize to LF first, in its own commit.
+- Files with mixed line endings (CRLF): normalize to LF first (part of commit 1).
 
 ## The unblocking procedure
 
@@ -78,9 +78,9 @@ make phpcs c='web/modules/custom/<module>/src/Bar.php --report=source'
 
 Then, in order:
 
-1. **Hand-edit the blockers** in that file — banners, commented-out code — and
-   commit that as its own step (`style(<module>: #<ticket>): unblock the comment
-   fixer in Bar.php`). It makes a confusing diff readable.
+1. **Hand-edit the blockers** in that file — banners, commented-out code. They
+   go into commit 1 with the phpcbf output; list them in the MR description so
+   the reviewer knows which hunks in that commit are not mechanical.
 2. **Re-run phpcbf on that single file.** If it converges, done.
 3. **If it still fails, run one sniff at a time.** Each sniff converges alone
    even when the full set does not:
@@ -106,5 +106,5 @@ exit
 make phpcs c='web/modules/custom/<module>'   # No violations were found
 ```
 
-`git diff` the unblocking commit before moving on: deleting commented-out code
+`git diff` the unblocking edits before moving on: deleting commented-out code
 is the one step of this skill that can delete something live by accident.

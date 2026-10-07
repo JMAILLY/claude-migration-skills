@@ -4,8 +4,9 @@ A coding-standards pass is assumed to be cosmetic. On Drupal it is not: the
 `DrupalPractice` family and the naming sniffs rewrite how objects are built and
 what methods are called. Everything below has broken a real site.
 
-**Rule: one risky category, in one module, = one commit + one UAT line in the
-MR.** Never fold a risky fix into a `style(...)` commit.
+**Rule: one risky category, in one module, = one UAT line in the MR**, naming
+the file and the change so the reviewer finds it in commit 2 or 3. The risky
+fixes do not get their own commits (SKILL.md Step 8).
 
 ## The catalogue
 
