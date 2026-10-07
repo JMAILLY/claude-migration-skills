@@ -51,6 +51,13 @@ Everything goes through the Makefile, arguments through `c='…'`.
   the default table output on the whole tree.
 - **One error shape across all files at a time**, one re-run per shape.
 - Rector writes the mechanical types; hand edits are for what it cannot do.
+- **No subagents, ever.** Never call the Agent or Workflow tool during this
+  pass: not per module, not per sniff, not in parallel, not one sequential
+  helper, not "to save context". Each subagent reloads the system prompt,
+  every tool definition and the files, then its diff is re-read to verify
+  it, so the cost multiplies. Do every fix yourself in this conversation;
+  slower is fine. When the context grows, the answer is `/clear` + resume,
+  never delegation.
 - If the context still grows large mid-pass, write the pending UAT lines to
   the notes file and propose `/clear` + `/php-standards`.
 

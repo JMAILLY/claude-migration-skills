@@ -15,6 +15,14 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [2.0.1] — 2026-10-07
+
+### Changed
+
+- `php-standards`, `phpcbf`, `phpcs`, `phpstan`: hard rule against calling the
+  Agent or Workflow tool during a pass; a phpcs run had spawned 6 subagents
+  and exhausted the user's quota.
+
 ## [2.0.0] — 2026-10-07
 
 ### Changed

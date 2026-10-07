@@ -19,6 +19,14 @@ Part of the `php-standards` campaign; that skill owns the setup, the
 questions, the state file and the MR. This one only writes commit 1: what
 phpcbf wrote, the minimal edits that let it write, and the phpcs tooling.
 
+**No subagents, ever.** Never call the Agent or Workflow tool during this
+pass: not per module, not per sniff, not in parallel, not one sequential
+helper, not "to save context". Each subagent reloads the system prompt,
+every tool definition and the files, then its diff is re-read to verify
+it, so the cost multiplies. Do every fix yourself in this conversation;
+slower is fine. When the context grows, the answer is `/clear` + resume,
+never delegation.
+
 ## Start
 
 ```bash
