@@ -253,21 +253,24 @@ list the module in `core.extension` and `system.schema` while its code is gone �
 which breaks `cim` and, worse, makes *every* later module install throw
 `The module <name> does not exist.`
 
-So each module or theme dropped from `composer.json` needs an **update hook** in
-a project-owned, always-installed module (typically `<project>_global_config`),
-committed in the same MR as the removal.
+So each module or theme dropped from `composer.json` **that some environment
+still has installed** needs an **update hook** in a project-owned,
+always-installed module (typically `<project>_global_config`), committed in the
+same MR as the removal. Read **`references/uninstall-update-hooks.md`** before
+writing one:
 
-Two facts make the obvious hook a silent no-op in production, so read
-**`references/uninstall-update-hooks.md`** before writing one:
+- **No hook for a module absent from the integration branch's
+  `core.extension.yml`**: `cim` already keeps it uninstalled everywhere, and a
+  hook would only add an untested destructive path.
+- **Code can stay one more deploy?** Ship `uninstall($modules, FALSE)` with the
+  return value checked, and remove the code in the next deploy.
+- **Code cannot stay** (no release for the new core): on deploy it is gone
+  before `updatedb`, and `ModuleInstaller::uninstall()` then returns `FALSE`
+  silently. Purge by hand, naming every module, config object (dependents
+  included) and table explicitly — no prefix matching, no generic helper.
 
-- the deploy order is `composer install` → `cr` → `updatedb` → `config-import`,
-  so **the code is already deleted** when your hook runs;
-- `ModuleInstaller::uninstall()` then returns `FALSE` **silently** — no throw, no
-  log. The hook needs a second path that purges the registry by hand.
-
-The reference file carries the two-path hook template, the reusable purge helper,
-the theme variant (easier — `ThemeInstaller` copes with missing code), and how to
-verify the purge path against a pre-removal database dump.
+The reference also carries the theme variant (easier — `ThemeInstaller` copes
+with missing code) and how to replay the deploy on a pre-removal database dump.
 
 ### D11 compatibility in info.yml files
 
@@ -431,8 +434,9 @@ make composer c='require drupal/core-recommended:^11.0 drupal/core-composer-scaf
 make composer c='require drupal/<mod_a>:^X drupal/<mod_b>:^Y … --no-update'
 
 # Uninstall (on D10, so hook_uninstall runs) THEN drop the incompatible/unused ones
-# NB: this cleans YOUR database only -- add an uninstall hook for each one
-# (references/uninstall-update-hooks.md), or preprod/prod break on cim.
+# NB: this cleans YOUR database only -- add a purge hook for each one still
+# installed on preprod/prod (references/uninstall-update-hooks.md), or they
+# break on cim.
 make drush c='pmu <removed_a> <removed_b> --yes'
 make composer c='remove drupal/<removed_a> drupal/<removed_b> --no-update'
 
@@ -612,8 +616,9 @@ make cr
 | `updb` reports orphan module (e.g. `tour`) | Module removed from core, still in `system.schema` | Purge — see `references/contrib-and-cleanup.md` § Orphaned modules |
 | `updb` blocked on contrib schema gap (e.g. honeypot 8102→8104) | Intermediate hooks removed upstream | Replay the removed update, then set the schema — `references/uninstall-update-hooks.md` § Don't blindly force |
 | Drush fails to start after a package update | Sub-module removed from package still in `core.extension` | Purge stale module — see `references/contrib-and-cleanup.md` § Orphaned modules |
-| `cim` fails on preprod/prod for a module removed locally | Removal was never paired with an uninstall hook | `references/uninstall-update-hooks.md` — add the two-path hook |
-| Uninstall hook "succeeded" but the module is still installed in prod | `ModuleInstaller::uninstall()` returns FALSE silently when the code is gone (it always is, on deploy) | Add the manual purge path — `references/uninstall-update-hooks.md` |
+| `cim` fails on preprod/prod for a module removed locally | Removal was never paired with an uninstall hook | `references/uninstall-update-hooks.md` — uninstall hook (two deploys) or explicit purge hook |
+| Uninstall hook "succeeded" but the module is still installed in prod | `ModuleInstaller::uninstall()` returns FALSE silently when the code is gone (it always is, on deploy) | Explicit purge hook — `references/uninstall-update-hooks.md` § Step 3 |
+| Reviewer flags a generic purge hook as risky | Prefix matching, `listAll('<module>.')`, a safety net for modules no environment has installed | Drop the hooks for modules absent from `core.extension.yml`; list modules, config and tables explicitly — `references/uninstall-update-hooks.md` |
 | A core update aborts with `The module <x> does not exist.` | An unrelated orphan blocks `ModuleInstaller::install()` | Purge the orphan + `hook_update_dependencies()` to order it first — `references/uninstall-update-hooks.md` |
 
 ---
@@ -621,7 +626,7 @@ make cr
 ## Reference files
 
 - `references/contrib-and-cleanup.md` — module cleanup, orphaned modules, schema gaps (local, one-off fixes)
-- `references/uninstall-update-hooks.md` — the deployable counterpart: update hooks that uninstall/purge removed modules before `cim` runs on preprod/prod
+- `references/uninstall-update-hooks.md` — the deployable counterpart: which removed modules need a hook, two-deploy uninstall vs explicit purge, verified on a pre-removal dump
 
 ## Sub-skills (usable standalone too)
 
