@@ -15,6 +15,20 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [2.0.2] — 2026-10-08
+
+### Changed
+
+- `d11`: uninstall hooks rewritten after a review on plasson. No hook for a
+  module absent from the integration branch's `core.extension.yml`; two
+  deploys with `uninstall($modules, FALSE)` when the code can stay; otherwise
+  an explicit purge naming every module, config object (dependents such as
+  `ultimate_cron.job.*` included) and table (cache bins), replacing the
+  generic prefix-matching helper and its post-update cleanup.
+- `d11`: verifying on a pre-removal dump documents the `make db-import`
+  failure under the new core, the table prefix in `drush sqlq`, and the
+  post-deploy checks.
+
 ## [2.0.1] — 2026-10-07
 
 ### Changed
