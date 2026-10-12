@@ -206,6 +206,18 @@ be reused for all branches and MRs in the session. If the user already provided
 it in their request, use it. Store it as `<ticket>` (e.g. `12345`) for branch
 names and commit messages delegated to gm.
 
+**Check the production prerequisites now, read-only**, on preprod and prod — the
+local stack proves nothing about the servers (a reviewer will ask):
+
+| Requirement (Drupal 11) | Read-only check |
+|---|---|
+| Database: MariaDB ≥ 10.6, MySQL/Percona ≥ 8.0, PostgreSQL ≥ 16, SQLite ≥ 3.45 | `drush sqlq "SELECT VERSION()"` |
+| PHP 8.4 available for the **CLI and the web runtime** (FPM pool / vhost handler) | `php -v`, and `phpinfo()` or the FPM pool config |
+
+A database below the minimum is a blocker for the whole campaign: `updb -y`
+forces past the requirements error and leaves the site on an unsupported engine.
+Put both checks in the "Production actions" of the step-6 MR.
+
 ## Step 1 — Backup
 
 ```bash
@@ -228,9 +240,29 @@ BEFORE any other operation.
 locates the PHP image, bumps 8.3 → 8.4, runs `make rebuild`, verifies `php -v`,
 and reinstalls dependencies.
 
-> ▸ **Close** (see MR protocol): commit Dockerfile + composer.json (if
-> `platform.php` changed). Bump the CI runner image too if it pins PHP/node
-> (e.g. `php-8.1-node-20` → `php-8.4-node-22`). Target `develop`.
+Do **not** raise `require.php` in `composer.json` here: the lock still targets
+D10, and the floor moves to `>=8.4` in step 6, where the D11 lock already needs it.
+
+> ▸ **Close** (see MR protocol): commit the Dockerfile (+ `config.platform.php`
+> if the project pins one). Bump the CI runner image too if it pins PHP/node
+> (e.g. `php-8.1-node-20` → `php-8.4-node-22`), and the PHP paths in
+> `deploy.php`. Target `develop`.
+>
+> The MR description must carry the **production prerequisites**, staging before
+> the merge on the staging branch, prod before the merge on the prod branch
+> (otherwise `deploy:vendors` fails and blocks every hotfix):
+> 1. PHP 8.4 installed with the same extensions and `php.ini` as the current one.
+> 2. The **FPM pool / vhost handler switched to 8.4** and restarted: `deploy.php`
+>    only drives the CLI, so without it the site is still served by the old PHP
+>    while the deploy reports 8.4.
+> 3. Server crontabs calling the old PHP binary updated.
+> 4. `sid_length` / `sid_bits_per_character` removed from the shared
+>    `services.yml` if present (deprecated in PHP 8.4).
+> 5. After deploy, both `drush status` and the web `phpinfo()` show 8.4.
+>
+> Also state that this MR **does not ship alone**: custom code still has
+> implicitly-nullable parameters until step 4, which log PHP 8.4 deprecations.
+> A clean `make cr` does not prove otherwise — it does not load those classes.
 
 ## Step 3 — Cleanup: unused modules & themes (ON D10)
 
@@ -429,6 +461,10 @@ make composer c='config -- policy.advisories.block false'
 # NOTE: core-dev ^10 ALSO pins core to 10 — bump it too or the resolve fails.
 make composer c='require drupal/core-recommended:^11.0 drupal/core-composer-scaffold:^11.0 drupal/core-dev:^11 drush/drush:^13 --no-update'
 
+# The PHP floor follows the runtime from step 2 (the update below rewrites the
+# lock's platform section)
+make composer c='require php:>=8.4 --no-update'
+
 # Every blocking contrib from the diagnose step, at its D11 release
 # (major bump where the current major has no D11 release)
 make composer c='require drupal/<mod_a>:^X drupal/<mod_b>:^Y … --no-update'
@@ -512,6 +548,56 @@ make cr
 > the pre-bump snapshot and revert `updb`'s config changes — and run `make cex`
 > instead to refresh the backup to the new D11 state.
 
+### Config-first: every config change made by `updb` must reach `config/sync`
+
+Deploys run `updatedb` → `config-import` → `updatedb`. A post-update that
+rewrites config is **reverted by the import** if `config/sync` still holds the
+old shape, and the second `updatedb` does not replay it (post-updates run once).
+`config:status` stays clean everywhere, so nothing signals it.
+
+Real case: `system_post_update_migrate_compress_setting` turns
+`system.performance` `css|js.gzip` into `compress`. The sync file kept `gzip`,
+and locally a config-split **patch** on `system.performance` absorbed the
+difference (it listed `compress` as a dev-only key and `gzip` as a sync-only
+key), so local `config:status` was clean while every `cim` in prod removed
+`compress` (silently ignored by D11, compression lost in D12).
+
+After `updb` on a database aligned with `config/sync` (`make cim` first):
+
+```bash
+make cex
+git diff --stat config/          # updb's changes, to commit
+# Splits patch the same objects: re-read every config/<split>/config_split.patch.*.yml
+# whose object updb touched, and drop keys the update renamed or removed.
+grep -rn "gzip:" config/         # must be empty after the D11 bump
+```
+
+`cex` also skips **language overrides**: when an update adds `langcode: en` to a
+config whose site default language differs, locale moves the translated strings
+into the `language.<default>` collection. `config:status` then lists the object
+as "Only in DB" forever. Export the override into
+`config/sync/language/<default>/`. Do it from `make shell` (make echoes its
+recipe line, which would land in the file):
+
+```bash
+vendor/bin/drush php:eval 'echo \Drupal\Core\Serialization\Yaml::encode(\Drupal::service("config.storage")->createCollection("language.fr")->read("<name>"));' > config/sync/language/fr/<name>.yml
+```
+
+### Review the deploy recipe for a core bump
+
+`deploy.php` (or the CI deploy script) was written for same-major releases. Two
+habits break on a core bump:
+
+- **`cr` before `updatedb`** fails on D11 code over a D10 schema
+  (`Unknown column 'alias'`) and aborts the deploy: drop it, `updatedb` is
+  followed by a `cr` anyway.
+- **Leaving maintenance mode inside the update task**, before
+  `deploy:publish`: the previous release then serves a database already migrated
+  to D11. Turn maintenance off only after publish. Deployer removes the
+  `release` symlink at publish, so a `drush_bin_path` built on
+  `{{deploy_path}}/release` no longer exists there: call
+  `{{current_path}}/vendor/bin/drush`.
+
 ### Final cleanup
 
 Remove the audit `--dev` dependencies that are no longer needed:
@@ -570,8 +656,12 @@ make translate
 > uninstall/purge hooks for everything dropped or orphaned here + the
 > regenerated D11 scaffold files + `config/` if git-tracked. Target
 > `fix/<ticket>-jquery4`. "Verification" = `drush status` (11.x) +
-> `core:requirements` + `cr` with 0 deprecations; "Manual UAT" = tests above.
-> Stays **Draft** until the user validates UAT.
+> `core:requirements` + `cr` with 0 deprecations + the deploy replayed on a
+> pre-bump dump (`references/uninstall-update-hooks.md` § Verify); "Manual UAT" =
+> tests above. "Production actions" = the step-0 prerequisites (database
+> version, PHP 8.4 on FPM), a database dump before deploying, and any manual
+> change to server-side shared files. Stays **Draft** until the user validates
+> UAT.
 
 ---
 
@@ -619,6 +709,10 @@ make cr
 | `cim` fails on preprod/prod for a module removed locally | Removal was never paired with an uninstall hook | `references/uninstall-update-hooks.md` — uninstall hook (two deploys) or explicit purge hook |
 | Uninstall hook "succeeded" but the module is still installed in prod | `ModuleInstaller::uninstall()` returns FALSE silently when the code is gone (it always is, on deploy) | Explicit purge hook — `references/uninstall-update-hooks.md` § Step 3 |
 | Reviewer flags a generic purge hook as risky | Prefix matching, `listAll('<module>.')`, a safety net for modules no environment has installed | Drop the hooks for modules absent from `core.extension.yml`; list modules, config and tables explicitly — `references/uninstall-update-hooks.md` |
+| Prod config silently reverted after deploy (e.g. `system.performance` back to `gzip`) | `config/sync` (or a split patch) still holds the pre-update shape; `cim` undoes the post-update | Step 6 § Config-first: export `updb`'s changes, clean the split patches |
+| `config:status` lists a config "Only in DB" after the bump | An update added `langcode`, locale stored the translation as a `language.<default>` override | Export it to `config/sync/language/<default>/` |
+| Deploy fails on `cr` / old code serves the D11 schema for a few seconds | Deploy recipe runs `cr` before `updatedb`, or leaves maintenance before publish | Step 6 § Review the deploy recipe |
+| `updb` passes in prod on MariaDB < 10.6 / MySQL < 8.0 | `-y` forces past the requirements error | Step 0: check the database version before the campaign |
 | A core update aborts with `The module <x> does not exist.` | An unrelated orphan blocks `ModuleInstaller::install()` | Purge the orphan + `hook_update_dependencies()` to order it first — `references/uninstall-update-hooks.md` |
 
 ---

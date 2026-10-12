@@ -106,6 +106,11 @@ git diff --name-status <integration-branch>...HEAD -- config/ | grep '^D'
 git grep -lE '^\s+- <module>$' <integration-branch> -- config/sync
 # Tables: hook_schema() tables, plus cache bins created on the fly.
 make drush c='sqlq "SHOW TABLES LIKE \"%<module>%\""'
+# Runtime data outside config: state, other key/value collections, locale
+# tracking, cron logs (`drush sqlq` does not apply the table prefix).
+make drush c='sqlq "SELECT collection, name FROM <prefix>key_value WHERE name LIKE \"%<module>%\" OR collection LIKE \"%<module>%\""'
+make drush c='sqlq "SELECT project, langcode FROM <prefix>locale_file WHERE project = \"<module>\""'
+make drush c='sqlq "SELECT COUNT(*) FROM <prefix>ultimate_cron_log WHERE name LIKE \"<module>%\""'
 ```
 
 If a dependent is a **field storage, a display or a view** (the module provides
@@ -114,13 +119,14 @@ Keep the code for one more deploy (Step 2) or migrate the fields first.
 
 ```php
 /**
- * Removes <module_a> and <module_b>, which have no D11 release (#<ticket>).
+ * Removes <module_a> and <module_b>, which have no D11 release.
+ *
+ * Mantis #<ticket>.
  */
 function <project>_global_config_update_10002(): void {
-  // Their code is removed with the core bump, so composer install deletes it
-  // before updatedb: ModuleInstaller::uninstall() cannot run without it.
-  // Neither declares a schema: only their config, their entries in
-  // core.extension and system.schema, and the <module_a> cache bin are left.
+  // composer install deletes their code before updatedb, so uninstall() cannot
+  // run: their config, cron job, registry entries, state and cache bin are
+  // purged by hand instead.
   $modules = ['<module_a>', '<module_b>'];
   $configs = [
     '<module_a>.settings',
@@ -133,6 +139,12 @@ function <project>_global_config_update_10002(): void {
     $config_factory->getEditable($config_name)->delete();
   }
 
+  // Ultimate Cron only prunes the logs of jobs that still exist.
+  $database = \Drupal::database();
+  foreach (['ultimate_cron_log', 'ultimate_cron_lock'] as $table) {
+    $database->delete($table)->condition('name', '<module_a>_cron')->execute();
+  }
+
   $extension_config = $config_factory->getEditable('core.extension');
   foreach ($modules as $module) {
     $extension_config->clear('module.' . $module);
@@ -140,9 +152,22 @@ function <project>_global_config_update_10002(): void {
   }
   $extension_config->save();
 
-  \Drupal::database()->schema()->dropTable('cache_<module_a>');
+  \Drupal::state()->delete('<module_a>.cron_timestamp');
+  \Drupal::keyValue('uc-progress')->delete('<module_a>_cron');
+  \Drupal::keyValue('update_fetch_task')->delete('<module_a>');
+  if (\Drupal::moduleHandler()->moduleExists('locale')) {
+    \Drupal::keyValue('locale.project')->deleteMultiple($modules);
+    $database->delete('locale_file')->condition('project', $modules, 'IN')->execute();
+  }
+
+  $database->schema()->dropTable('cache_<module_a>');
 }
 ```
+
+Keep the inline comments short and put the *why* in the docblock: reviewers
+read these hooks long after the campaign. The state, key/value and locale
+lines above are examples from AdvAgg: name only what the queries actually
+returned for your modules.
 
 What must be cleaned, and what need not be:
 
@@ -152,6 +177,9 @@ What must be cleaned, and what need not be:
 | Schema version | `system.schema` key-value | "missing from your site" on `updb`, drush may not boot |
 | Config | the explicit list above, dependents included | orphan config, `PluginNotFoundException` for dependents |
 | Tables | `hook_schema()` tables + `cache_<bin>` | orphan tables |
+| Cron data | `ultimate_cron_log` / `ultimate_cron_lock` rows, `uc-progress` key/value | logs never pruned (Ultimate Cron only prunes existing jobs) |
+| State & key/value | `state` keys, `update_fetch_task`, other collections the query returns | dead entries; `update_fetch_task` keeps queueing a missing project |
+| Locale tracking | `locale.project` key/value, `locale_file` rows | `locale:check` / `locale:update` (run on every deploy) keep fetching translations for a missing project |
 | Post-updates | `post_update` → `existing_updates` | nothing: extra entries are ignored, leave them |
 
 Each operation is idempotent (deleting a missing config, key or table is a
@@ -256,12 +284,14 @@ function <project>_global_config_update_10004(): void {
   // hostname index on {honeypot_user}; honeypot_update_8104() only cleared the
   // Tour tip cache, and Tour is not installed here.
   $schema_store = \Drupal::keyValue('system.schema');
-  if ($schema_store->get('honeypot') >= 8104) {
+  $installed_schema = $schema_store->get('honeypot');
+  // NULL: not installed here; NULL >= 8104 is FALSE and would not stop it.
+  if ($installed_schema === NULL || $installed_schema >= 8104) {
     return;
   }
 
   $database_schema = \Drupal::database()->schema();
-  if (!$database_schema->indexExists('honeypot_user', 'hostname')) {
+  if ($database_schema->tableExists('honeypot_user') && !$database_schema->indexExists('honeypot_user', 'hostname')) {
     \Drupal::moduleHandler()->loadInclude('honeypot', 'install');
     $database_schema->addIndex('honeypot_user', 'hostname', ['hostname'], honeypot_schema()['honeypot_user']);
   }
@@ -301,7 +331,10 @@ Then check, on that replayed database:
 
 - the hooks appear in the `updb` output, and `system.schema` holds the new
   number for the hooks' module;
-- the listed config, the `core.extension` entries and the tables are gone;
+- the listed config, the `core.extension` entries and the tables are gone, and
+  the runtime-data queries of Step 3 (key/value, `locale_file`, cron logs) come
+  back empty — a hook that already ran on your local database with an earlier
+  version proves nothing, replay the **final** one;
 - `drush cst` reports no difference and the second `updb` has nothing pending;
 - `drush core:requirements --severity=2` shows nothing the hooks caused;
 - the orphan diff returns an empty array (one line only: make runs each recipe
@@ -317,8 +350,9 @@ Checklist for the MR:
       (or confirmed enabled on preprod/prod); the others have no hook.
 - [ ] Modules with a release for the current core go through two deploys
       (`uninstall($modules, FALSE)`, return checked), not a purge.
-- [ ] Purge hooks name every module, config object (dependents included) and
-      table explicitly; no prefix matching, no generic helper.
+- [ ] Purge hooks name every module, config object (dependents included),
+      table and runtime entry (state, key/value, locale, cron logs) explicitly;
+      no prefix matching, no generic helper.
 - [ ] No field storage, display or view depends on a purged module.
 - [ ] `hook_update_dependencies()` points at the **last** purging hook, if a
       pending core update installs a module.
