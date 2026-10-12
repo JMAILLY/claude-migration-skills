@@ -71,8 +71,9 @@ make drush c='eval "\$ext = \Drupal::configFactory()->getEditable(\"core.extensi
 Then `make cr` and confirm Drupal boots cleanly.
 
 > This `eval` is the throwaway version of the purge. The deployable one — which
-> also clears the module's config objects and its `post_update` entries, and
-> orders itself before core's updates — is in **`uninstall-update-hooks.md`**.
+> also clears the module's config objects, tables and runtime data (state,
+> key/value, locale tracking, cron logs), and orders itself before core's
+> updates — is in **`uninstall-update-hooks.md`**.
 
 ## Schema gaps in contrib modules (`updb` blocked)
 

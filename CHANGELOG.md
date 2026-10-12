@@ -15,6 +15,24 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [2.0.3] — 2026-10-12
+
+### Changed
+
+- `d11`: lessons from the Project A review. Step 0 checks the production
+  prerequisites read-only (database version, PHP 8.4 on the web runtime, not
+  only the CLI). Step 2 keeps `require.php` untouched (raised in step 6) and its
+  MR lists the server-side actions (FPM/vhost, crontabs, `sid_length`) and says
+  it does not ship before step 4.
+- `d11`: step 6 documents config changes made by `updb` that `cim` reverts on
+  deploy when `config/sync` or a split patch keeps the old shape
+  (`system.performance` `gzip` → `compress`), language overrides left
+  "Only in DB", and the deploy recipe pitfalls on a core bump (`cr` before
+  `updatedb`, maintenance left before publish).
+- `d11`: purge hooks also clear runtime data (state, `update_fetch_task`,
+  `uc-progress`, locale tracking, Ultimate Cron logs), with discovery queries
+  and checks on the replayed dump; the Honeypot replay guards a missing module.
+
 ## [2.0.2] — 2026-10-08
 
 ### Changed
