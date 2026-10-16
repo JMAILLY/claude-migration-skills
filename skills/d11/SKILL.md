@@ -206,17 +206,17 @@ be reused for all branches and MRs in the session. If the user already provided
 it in their request, use it. Store it as `<ticket>` (e.g. `12345`) for branch
 names and commit messages delegated to gm.
 
-**Check the production prerequisites now, read-only**, on preprod and prod — the
-local stack proves nothing about the servers (a reviewer will ask):
+**Production prerequisites go in the MRs, never on the servers.** Never SSH into
+preprod/prod and never ask the user for server access or to check them — list
+the requirements in the MRs' "Production actions" for the hosting team:
 
-| Requirement (Drupal 11) | Read-only check |
-|---|---|
-| Database: MariaDB ≥ 10.6, MySQL/Percona ≥ 8.0, PostgreSQL ≥ 16, SQLite ≥ 3.45 | `drush sqlq "SELECT VERSION()"` |
-| PHP 8.4 available for the **CLI and the web runtime** (FPM pool / vhost handler) | `php -v`, and `phpinfo()` or the FPM pool config |
+| Requirement (Drupal 11) |
+|---|
+| Database: MariaDB ≥ 10.6, MySQL/Percona ≥ 8.0, PostgreSQL ≥ 16, SQLite ≥ 3.45 |
+| PHP 8.4 available for the **CLI and the web runtime** (FPM pool / vhost handler) |
 
 A database below the minimum is a blocker for the whole campaign: `updb -y`
 forces past the requirements error and leaves the site on an unsupported engine.
-Put both checks in the "Production actions" of the step-6 MR.
 
 ## Step 1 — Backup
 
@@ -712,7 +712,7 @@ make cr
 | Prod config silently reverted after deploy (e.g. `system.performance` back to `gzip`) | `config/sync` (or a split patch) still holds the pre-update shape; `cim` undoes the post-update | Step 6 § Config-first: export `updb`'s changes, clean the split patches |
 | `config:status` lists a config "Only in DB" after the bump | An update added `langcode`, locale stored the translation as a `language.<default>` override | Export it to `config/sync/language/<default>/` |
 | Deploy fails on `cr` / old code serves the D11 schema for a few seconds | Deploy recipe runs `cr` before `updatedb`, or leaves maintenance before publish | Step 6 § Review the deploy recipe |
-| `updb` passes in prod on MariaDB < 10.6 / MySQL < 8.0 | `-y` forces past the requirements error | Step 0: check the database version before the campaign |
+| `updb` passes in prod on MariaDB < 10.6 / MySQL < 8.0 | `-y` forces past the requirements error | List the database version requirement in the MR "Production actions" (step 0) |
 | A core update aborts with `The module <x> does not exist.` | An unrelated orphan blocks `ModuleInstaller::install()` | Purge the orphan + `hook_update_dependencies()` to order it first — `references/uninstall-update-hooks.md` |
 
 ---

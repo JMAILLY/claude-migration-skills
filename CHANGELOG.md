@@ -15,6 +15,16 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [2.0.4] — 2026-10-16
+
+### Changed
+
+- `d11`: production prerequisites are never checked on the servers. Step 0
+  forbids SSH into preprod/prod and asking the user for server access; the
+  database and PHP 8.4 requirements only go into the MRs' "Production actions".
+  The uninstall-hook reference no longer confirms installed modules on the
+  servers: the integration branch's `core.extension.yml` is the only source.
+
 ## [2.0.3] — 2026-10-12
 
 ### Changed

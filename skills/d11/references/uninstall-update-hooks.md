@@ -37,8 +37,6 @@ A reviewer will (rightly) ask for it to be deleted.
 ```bash
 # Installed according to the config the environments import:
 git show <integration-branch>:config/sync/core.extension.yml | grep -nE '^  (<module_a>|<module_b>):'
-# Confirm on preprod and prod (read-only):
-drush pml --status=enabled --type=module
 ```
 
 Only the modules that come back here get a hook. Typical survivors in a D11
@@ -346,8 +344,8 @@ make drush c='eval "print_r(array_values(array_diff(array_keys(\Drupal::config(\
 
 Checklist for the MR:
 
-- [ ] Each hooked module is in the integration branch's `core.extension.yml`
-      (or confirmed enabled on preprod/prod); the others have no hook.
+- [ ] Each hooked module is in the integration branch's `core.extension.yml`;
+      the others have no hook.
 - [ ] Modules with a release for the current core go through two deploys
       (`uninstall($modules, FALSE)`, return checked), not a purge.
 - [ ] Purge hooks name every module, config object (dependents included),
