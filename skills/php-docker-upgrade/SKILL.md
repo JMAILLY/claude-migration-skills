@@ -23,7 +23,35 @@ the framework/core — otherwise `composer update` fails or the site won't boot.
   the number changes.
 
 If the caller (e.g. the `d11` orchestrator) already fixed the target, use it.
-Otherwise ask the user which PHP version to target.
+Otherwise run step 0 to decide whether a bump is needed, and to which version.
+
+## 0. Check whether a bump is needed
+
+Collect the five facts, then decide:
+
+```bash
+grep -rhoE 'FROM php:[0-9.]+[^ ]*' docker/                       # 1. current image
+make composer c='show --self --format=json' | grep -A3 '"requires"' # 2a. the project's "php" constraint
+grep -o '"php": *"[^"]*"' web/core/composer.json                  # 2b. the framework floor (Drupal core)
+grep -nE '^image:|php-[0-9.]+' .gitlab-ci.yml                     # 4. the CI image
+curl -s https://endoflife.date/api/php.json |                     # 3. support cycles
+  python3 -c "import json,sys;[print(c['cycle'],'eol',c['eol'],'latest',c['latest']) for c in json.load(sys.stdin)[:5]]"
+```
+
+5. The **production runtime** (FPM, not only the CLI): ask the user, or read it
+   from the deploy recipe (e.g. a pinned `bin/php`). Never SSH to find out.
+
+| Situation | Decision |
+|---|---|
+| The current cycle is past `eol`, or below the framework floor | **Bump** to the newest cycle that the framework supports and production can run; production goes in the MR's prerequisites |
+| The current cycle = production's, and a newer cycle is supported but production is still behind | **No bump.** Report the newer cycle as a follow-up: local must not run ahead of prod |
+| Production / CI already moved to a newer cycle | **Bump** to match them |
+| The current cycle = production = CI, and it is supported | **Nothing to do.** Say so, and still refresh the patch release: `make rebuild-no-cache` pulls the latest `x.y` image |
+
+The framework's supported range comes from its docs (Drupal:
+drupal.org/docs/getting-started/system-requirements/php-requirements), not from
+the floor in `composer.json` alone. Report the five facts and the decision
+before touching any file.
 
 ## Golden rule: everything goes through the Makefile
 

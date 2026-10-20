@@ -4,8 +4,8 @@ The Lando `node` service ran the theme build (often `gulp` with a forced
 `platform: linux/amd64`). In Docker, the `node` service **idles**
 (`command: tail -f /dev/null`) and the build runs through the Makefile
 (`make npm-dev` / `make npm-build` / `make npm c=...`), i.e.
-`docker compose exec node npm …`. Base image is always `node:22-alpine`
-(multi-arch — no amd64 forcing).
+`docker compose exec node npm …`. Base image is `node:<Active LTS>-alpine`
+(24 as of late 2026, see `image-versions.md`; multi-arch, no amd64 forcing).
 
 ## Decision 1 — does the node image need the build toolchain?
 
@@ -20,12 +20,12 @@ grep -E 'imagemin|optipng|mozjpeg|gifsicle' package.json web/themes/custom/*/pac
   build-base + `CFLAGS=-DPNG_ARM_NEON_OPT=0`, see `docker-images.md`). The
   prebuilt `optipng` binary is glibc/x86-64 and fails on Alpine musl / ARM64, so
   it compiles from source; the NEON flag lets libpng link on arm64.
-- **No match** (pure esbuild/Vite/Tailwind) → the minimal `node:22-alpine` form
-  is enough.
+- **No match** (pure esbuild/Vite/Tailwind, or images through `sharp`) → the
+  minimal `node:<LTS>-alpine` form is enough.
 
-> When migrating a Gulp project, also consider dropping the fragile
-> `gulp-imagemin` `mozjpeg`/`optipng` plugins entirely — that removes the whole
-> toolchain requirement. The `gulp-to-vite` skill covers replacing Gulp; this
+> The toolchain form only keeps a legacy Gulp build running. `gulp-to-vite`
+> replaces imagemin with `sharp` + `svgo` (prebuilt binaries, no unfixed
+> advisories), which removes the toolchain requirement. The `gulp-to-vite` skill covers replacing Gulp; this
 > skill only needs the build to *run* in the container.
 
 ## Decision 2 — how the dev server / HMR is wired

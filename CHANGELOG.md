@@ -15,6 +15,57 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-10-20
+
+### Added
+
+- `drupal-scaffold`: puts the scaffold files back under
+  `drupal/core-composer-scaffold`. Every output is untracked and gitignored, and
+  project changes move to `scaffold/*-prepend.txt` / `*-append.txt` or a full
+  replacement. Each long-lived branch is diffed against the stock file of its own
+  core version, and the merges that change a scaffold file without conflicting
+  are listed. The skill checks that CI artifacts and the deploy regenerate the
+  files (`--no-scripts` still scaffolds). Reference `htaccess.md` lists the
+  position-independent directives, the generic force-www to restrict to the prod
+  host, and the duplicate front controller that bypasses the hidden-path rule. It
+  also gives a `preprod-auth` GitLab CI job that replaces a committed `.htpasswd`.
+- `lando-to-docker`: Step 1 resolves every image tag at migration time
+  (`references/image-versions.md`) instead of copying the baseline. Dev-only
+  tools take their newest release; PHP, Node and the database take the newest
+  LTS / supported version that production and the CI image also run. The MR
+  carries an Image / File / Status / Newer version table.
+- `php-docker-upgrade`: step 0 decides whether a bump is needed at all. It looks
+  at the current image, the project and framework constraints, the support
+  cycles, the CI image and the production runtime, and never runs local ahead
+  of production.
+- `d11`: step 2 lets `php-docker-upgrade` pick the PHP target (8.4 is the floor)
+  and refreshes the other images in the same MR (Node Active LTS, CI image to
+  match). Step 6 gains "Security and freshness": the advisory block is restored,
+  `composer audit` must be clean on the day the MR ships, and the front audit
+  and image check are re-run. When `gm:security` is available, `d11` delegates
+  the check to it. Its package updates go into the MR; larger fixes are listed as
+  follow-ups.
+- `gulp-to-vite`: images go through `sharp` + `svgo` (new `vite-images` plugin,
+  tested on `node:24-alpine` / arm64) instead of `imagemin-*`, and `tinyglobby`
+  replaces `fast-glob`. The imagemin chain (`bin-build` → `decompress`, `got`…)
+  and `fast-glob` → `braces` carry critical advisories with no fix. Every
+  devDependency is installed at its latest version. Node is the current Active
+  LTS (24) in the node image, `engines` and the CI image. Verification adds
+  `npm audit` and an image size and list check.
+- `gulp-to-vite`: lessons from the first run of the above. `sass` from 1.92.0
+  rewrites `mixed-decls` output (cascade reorder): snapshot and compare the
+  outputs, and pin `~1.91.0` until `sass-migrator` has fixed the source. npm 11
+  `allowScripts` (approve esbuild, deny `node-gyp` rebuilds). `>` in a `make`
+  argument is a shell redirection.
+- `sass-migrator`: the mixed-decls step is the gate for bumping `sass` past 1.91.
+
+### Changed
+
+- `lando-to-docker`: the node image is `node:24-alpine` (Active LTS); the
+  toolchain form only serves legacy imagemin builds.
+- `lando-to-docker`: baseline tags refreshed (`adminer:6.1.2`,
+  `axllent/mailpit:v1.31.6`, `redis:8-alpine`).
+
 ## [2.0.4] — 2026-10-16
 
 ### Changed
@@ -354,7 +405,16 @@ that are Dockerized and driven by a `Makefile`.
 - **`sass-migrator`** (any stack) — migration off deprecated Dart Sass syntax
   with a harness that proves the compiled CSS is byte-identical.
 
-[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.0.4...v2.1.0
+[2.0.4]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.0.3...v2.0.4
+[2.0.3]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.0.2...v2.0.3
+[2.0.2]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.0.1...v2.0.2
+[2.0.1]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.0.0...v2.0.1
+[2.0.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.5.0...v2.0.0
+[1.5.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.3.2...v1.4.0
+[1.3.2]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/JMAILLY/claude-migration-skills/compare/v1.2.0...v1.2.1

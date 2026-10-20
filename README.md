@@ -26,6 +26,7 @@ expect.
 |---|---|---|
 | [`lando-to-docker`](skills/lando-to-docker) | **Drupal** | Local dev from Lando → Docker Compose + Makefile (Traefik on `*.dev.localhost`, PHP-FPM + Apache, MariaDB, Redis, Adminer, Mailpit). Single-site or multisite. Produces the `Makefile` the rest of the pack depends on. |
 | [`d11`](skills/d11) | **Drupal** | Orchestrator for Drupal 10 → 11: owns the safe order, the cascading branches, and the D11-specific work (module cleanup with deployable uninstall hooks, contrib bump, core bump + apply). Delegates to three sub-skills below. |
+| [`drupal-scaffold`](skills/drupal-scaffold) | **Drupal** | Hands the scaffold files (`.htaccess`, `index.php`, `robots.txt`…) back to `core-composer-scaffold`: untracks and gitignores them, moves customizations into `scaffold/*-prepend.txt`, makes branch-only `.htaccess` edits (prod redirects, firewall, force-www) safe on every environment, and replaces a committed preprod `.htpasswd` with a `preprod-auth` CI job. |
 | [`php-deprecations-audit`](skills/php-deprecations-audit) | **Drupal** | Audits and fixes deprecated APIs in custom code with `upgrade_status` + `drupal-rector` + PHPStan, looping until zero. Replayable for the next major. |
 | [`gulp-to-vite`](skills/gulp-to-vite) | **Drupal** (theme) | Gulp → Vite build migration that leaves `*.libraries.yml` untouched, with the dev HMR wiring and the Drupal/Apache caches that must be off for it to work. |
 | [`jquery-4-migration`](skills/jquery-4-migration) | **Drupal** (theme) — jQuery knowledge is generic | jQuery 3 → 4 (as shipped by Drupal 11): removed APIs, native replacements, and a scoped local polyfill for third-party libs that are not ready. |
@@ -110,6 +111,7 @@ Run Claude Code **at the project root**, then invoke a skill:
 /d11                     # Drupal 10 → 11, full orchestration
 /php-docker-upgrade      # PHP bump in Docker
 /php-deprecations-audit  # custom-code deprecations audit
+/drupal-scaffold         # scaffold files under composer control (+ prepends, preprod auth CI)
 /jquery-4-migration      # jQuery 3 → 4
 /gulp-to-vite            # Gulp → Vite front build
 /sass-migrator           # SCSS modernization
@@ -130,6 +132,10 @@ The skills detect these and degrade gracefully when they are missing:
   branch/commit/MR conventions. When present, the migration skills delegate the
   Git workflow to them; otherwise they fall back to plain git, or skip the MR.
   They ask once and remember the choice.
+- **`gm:security`**: an in-house dependency and infrastructure audit. `d11` runs
+  it after the core bump, then folds its package-update fixes into the step's MR.
+  Without it, `d11` runs `composer audit`, `npm audit` and the image check
+  itself.
 - **`glab`**, authenticated against your GitLab host, for creating the merge
   requests.
 

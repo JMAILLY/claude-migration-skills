@@ -204,14 +204,15 @@ EXPOSE 80
 
 ## `docker/node/Dockerfile`
 
-The base is always `node:22-alpine` (runs natively on arm64 **and** amd64 — do
+The base is `node:<Active LTS>-alpine`, 24 as of late 2026, resolved with
+`image-versions.md` (runs natively on arm64 **and** amd64 — do
 NOT force `platform: linux/amd64`, and do NOT create a `Dockerfile.x64`; that is
 a dead Lando-era leftover). The build toolchain + `CFLAGS` block is **only**
 needed when the frontend uses `gulp-imagemin` / `imagemin-optipng` (see
 `frontend-build.md`). Minimal form for a project without native imagemin:
 
 ```dockerfile
-FROM node:22-alpine
+FROM node:24-alpine
 WORKDIR /var/www/html
 ```
 
@@ -219,7 +220,7 @@ Form required when `imagemin-optipng` is a dependency (compiles optipng/libpng
 from source; the prebuilt binary is glibc/x86-64 and fails on Alpine musl / ARM):
 
 ```dockerfile
-FROM node:22-alpine
+FROM node:24-alpine
 RUN apk add --no-cache \
     autoconf automake libtool build-base nasm zlib-dev libpng-dev giflib-dev
 # libpng's ARM-NEON path references symbols it doesn't compile on arm64 → disable it

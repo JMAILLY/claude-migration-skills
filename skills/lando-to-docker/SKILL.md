@@ -23,11 +23,14 @@ across the reference projects (Project B, Project D, Project E):
 Traefik (shared, external)  ──►  apache (httpd:2.4-alpine, proxy_fcgi)
   *.dev.localhost, TLS            └─►  php (php:8.4-fpm)
                                         ├─ db      (mariadb:11.8)
-                                        ├─ redis   (redis:7-alpine)
-                                        ├─ node    (node:22-alpine, idle)
-                                        ├─ adminer (adminer:5.4.2)
+                                        ├─ redis   (redis:8-alpine)
+                                        ├─ node    (node:24-alpine, idle)
+                                        ├─ adminer (adminer:6.1.2)
                                         └─ mailpit (axllent/mailpit)
 ```
+
+The tags above are a baseline, not a target: Step 1 resolves the current ones
+(`references/image-versions.md`).
 
 ## Golden rule
 
@@ -67,7 +70,17 @@ output:
 > Capture the target `COMPOSE_PROJECT_NAME` (the base hostname) and the theme
 > folder now — they thread through every file.
 
-## Step 1 — Create the `docker/` tree
+## Step 1 — Resolve the image versions, then create the `docker/` tree
+
+Before writing any file, resolve every image's tag with
+**`references/image-versions.md`**:
+- dev-only tools (Adminer, Mailpit, httpd, Redis) take their newest release;
+- PHP, Node and the database take the newest LTS / supported version that
+  production and the CI image also run.
+
+Write the resolved tags into the files below, and keep the report table for the
+MR.
+
 
 Create the image/config files verbatim from **`references/docker-images.md`**:
 `docker/php/{Dockerfile,entrypoint.sh,php.ini,www.conf,xdebug.ini}`,
@@ -150,6 +163,8 @@ Manual checks:
 - [ ] Edits to files on the host are picked up (bind mount + UID/GID remap OK)
 - [ ] `make npm-dev` HMR works (Vite/Gulp) if applicable
 - [ ] (multisite) each site resolves and reaches its own DB
+- [ ] Every image is on the version the image-versions rule picks, and the
+      report table lists each newer version held back, with the reason
 
 ## Hand-off to the other skills
 
@@ -169,6 +184,7 @@ old `.lando.yml` deletion in the same commit as the new `docker/` + `Makefile`.
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| An image is a year behind | tags copied from the references | Resolve them (image-versions.md) |
 | `make up` fails / nothing routes | `traefik-public` network or Traefik instance missing | Create the network + run Traefik (Prerequisites) |
 | Cert warning on `*.dev.localhost` | mkcert root not installed / cert not loaded into Traefik | `mkcert -install`; feed `*.dev.localhost` cert to Traefik |
 | Site can't connect to DB, `$_ENV` empty | `clear_env = no` missing from `www.conf` | Add it, `make rebuild` |
@@ -188,6 +204,7 @@ old `.lando.yml` deletion in the same commit as the new `docker/` + `Makefile`.
 
 ## Reference files
 
+- `references/image-versions.md` — resolving each image's tag + the report table
 - `references/docker-images.md` — verbatim `docker/` Dockerfiles + config
 - `references/compose-traefik.md` — `docker-compose.yml`, Traefik labels, mkcert
 - `references/makefile.md` — full Makefile template + argument passing

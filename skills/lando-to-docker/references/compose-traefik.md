@@ -124,7 +124,7 @@ services:
           - ${COMPOSE_PROJECT_NAME}     # lets settings.php use host=<project> if desired
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis-data:/data
@@ -163,7 +163,7 @@ services:
       - "traefik.http.services.${COMPOSE_PROJECT_NAME}-vite.loadbalancer.server.port=${VITE_SERVER_PORT:-3000}"
 
   adminer:
-    image: adminer:5.4.2
+    image: adminer:6.1.2
     depends_on:
       - db
     environment:
@@ -181,7 +181,7 @@ services:
       - "traefik.http.services.${COMPOSE_PROJECT_NAME}-adminer.loadbalancer.server.port=8080"
 
   mailpit:
-    image: axllent/mailpit:v1.29.6
+    image: axllent/mailpit:v1.31.6
     networks:
       - app-internal
       - traefik-public
@@ -209,14 +209,16 @@ networks:
 
 ## Service map (Lando → Docker)
 
+Baseline tags: resolve the current ones with `image-versions.md`.
+
 | Lando | Docker replacement | Image |
 |---|---|---|
 | `appserver` (via: apache) | split **apache** proxy + **php** fpm | `httpd:2.4-alpine` + `php:8.4-fpm` |
 | `database` (mariadb/mysql) | **db** | `mariadb:11.8` |
-| `redis` | **redis** | `redis:7-alpine` |
-| `node` | **node** | `node:22-alpine` |
-| `mailhog` | **mailpit** | `axllent/mailpit:v1.29.6` |
-| `pma` (phpMyAdmin) | **adminer** | `adminer:5.4.2` |
+| `redis` | **redis** | `redis:8-alpine` |
+| `node` | **node** | `node:24-alpine` |
+| `mailhog` | **mailpit** | `axllent/mailpit:v1.31.6` |
+| `pma` (phpMyAdmin) | **adminer** | `adminer:6.1.2` |
 | `elasticsearch` | **dropped** — not carried over (projects use `search_api_db`) | — |
 | `proxy: *.lndo.site` | Traefik labels → `*.dev.localhost` | shared external Traefik |
 | `tooling:` block | the **Makefile** | see `makefile.md` |

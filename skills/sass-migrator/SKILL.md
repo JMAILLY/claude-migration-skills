@@ -254,6 +254,11 @@ a product decision — show the user the concrete value differences and ask
 
 ## Step 3 — mixed-decls (no migrator; fix at the source)
 
+> Also the gate for bumping `sass` past **1.91**: from 1.92.0 the compiler emits
+> the trailing declarations as a separate later rule, which changes the CSS. A
+> project pinned on `~1.91.0` by `gulp-to-vite` can move to `sass@latest` once
+> this step reports zero mixed-decls and the golden comparison is clean.
+
 ### Root cause
 A **declaration after a nested rule** in the same style rule — almost always a
 mixin that emits declarations *and* a nested rule (`@media` via

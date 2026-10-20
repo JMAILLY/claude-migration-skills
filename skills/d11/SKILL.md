@@ -120,6 +120,7 @@ tied to the **same Mantis ticket**.
 >   to it — it carries the team's conventions (branch `fix/<ticket>-<slug>`,
 >   commit `type(scope: #<ticket>): …`, the self-hosted GitLab host, MR as
 >   Draft). Likewise use `gm:review` for the per-step review.
+>   `gm:security`, when present, runs the security check at the end of step 6.
 > - **If it is NOT available**, ask the user once how to close each step:
 >   **(a)** run the git workflow manually following the conventions in this
 >   section (branch → surgical commit → push, then open the MR with `glab` if
@@ -236,17 +237,23 @@ Git-commit the saved state before continuing.
 Recent Drupal 11 requires **PHP 8.4**. This is a technical prerequisite done
 BEFORE any other operation.
 
-**Invoke the `php-docker-upgrade` sub-skill with target PHP version 8.4.** It
-locates the PHP image, bumps 8.3 → 8.4, runs `make rebuild`, verifies `php -v`,
-and reinstalls dependencies.
+**Invoke the `php-docker-upgrade` sub-skill with 8.4 as the floor.** Its step 0
+checks whether a newer supported cycle fits (what production runs, what the CI
+image runs) and decides the target; then it bumps the image, runs
+`make rebuild`, verifies `php -v`, and reinstalls dependencies.
+
+Refresh the other images in the same MR: the dev-only tools to their newest
+release, the node image to the current Node **Active LTS** (rule and commands:
+`lando-to-docker` → `references/image-versions.md`).
 
 Do **not** raise `require.php` in `composer.json` here: the lock still targets
 D10, and the floor moves to `>=8.4` in step 6, where the D11 lock already needs it.
 
 > ▸ **Close** (see MR protocol): commit the Dockerfile (+ `config.platform.php`
 > if the project pins one). Bump the CI runner image too if it pins PHP/node
-> (e.g. `php-8.1-node-20` → `php-8.4-node-22`), and the PHP paths in
-> `deploy.php`. Target `develop`.
+> (e.g. `php-8.1-node-20` → `php-8.4-node-24`: the same Node LTS as the node
+> image), and the PHP paths in `deploy.php`. Target `develop`. The MR carries the
+> image-versions report table (Image / File / Status / Newer version).
 >
 > The MR description must carry the **production prerequisites**, staging before
 > the merge on the staging branch, prod before the merge on the prod branch
@@ -493,6 +500,39 @@ make composer c='update --with-all-dependencies'
 > orphaned sub-module or a `updb` schema gap, see
 > **`references/contrib-and-cleanup.md`** (§ Orphaned modules, § Schema gaps).
 
+### Security and freshness, after the bump
+
+The advisory block was lifted to resolve: lift it back, and leave nothing known
+vulnerable behind.
+
+> **If `gm:security` is available**, run it here, after the unset below. It
+> covers the composer and npm audits, the Drupal SAs and the container images, and
+> ranks the findings by how exploitable they are. Fold its fixes into this step's
+> MR when they are package updates. Anything bigger (the image toolchain, an
+> abandoned package, a held-back runtime) goes in the MR as a follow-up. Without
+> it, run the checks below by hand. Run it again on the day the MR ships if
+> drupal.org published an SA in between.
+
+```bash
+make composer c='config --unset policy.advisories.block'   # then delete the empty "policy": {} it leaves in composer.json
+make composer c='audit --locked --abandoned=report'   # target: "No security vulnerability advisories found"
+make composer c='outdated --direct --minor-only'      # what a plain update would still pick up
+```
+
+- **Advisories**: every one is fixed in the same MR, by updating the package to
+  its patched release (`make composer c='update drupal/<pkg> --with-dependencies'`).
+  Core and contrib SAs land weekly: check drupal.org/security on the day the MR
+  goes out, not only when the work started.
+- **Abandoned packages**: plain `audit` exits non-zero on them even with zero
+  advisories. Report them in the MR with the suggested replacement; replacing
+  one is a separate change unless it is blocking.
+- **Front**: `make npm c='audit --include=dev'`. Legacy image toolchains
+  (`imagemin-*`, `fast-glob`) carry critical advisories with **no fix**: the
+  answer is the `gulp-to-vite` skill (sharp + svgo, Node LTS), not
+  `npm audit fix --force`.
+- **Images**: re-run the image-versions check. A PHP/DB/Node held back for
+  production goes in the MR as a follow-up, not as a silent pin.
+
 ### Purge the orphans the bump itself created
 
 A contrib major that **drops a dependency** leaves modules installed with no code
@@ -724,7 +764,7 @@ make cr
 
 ## Sub-skills (usable standalone too)
 
-- `php-docker-upgrade` — PHP version bump in Docker (step 2)
+- `php-docker-upgrade` — PHP version check + bump in Docker (step 2)
 - `php-deprecations-audit` — upgrade_status/rector/phpstan on custom code (step 4)
 - `jquery-4-migration` — jQuery 3 → 4 theme migration (step 5)
 

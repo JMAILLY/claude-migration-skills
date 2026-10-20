@@ -60,7 +60,7 @@ MYSQL_USER=drupal
 MYSQL_PASSWORD=drupal
 MYSQL_PREFIX=
 
-# Redis (empty password = no auth, as redis:7-alpine runs unauthenticated)
+# Redis (empty password = no auth, as the redis image runs unauthenticated)
 REDIS_HOSTNAME=redis
 REDIS_PORT=6379
 REDIS_PASSWORD=
@@ -279,5 +279,5 @@ Makefile drives drush per site with `--uri=$(SITE)` (see `makefile.md`).
   `search_api_db`. Don't stand up an ES service unless the project genuinely uses
   a `search_api_elasticsearch` server backend (`config/sync/search_api.server.*.yml`).
 - **`Dockerfile.x64` / `platform: linux/amd64`** — dead Lando-era workaround;
-  `node:22-alpine` is multi-arch.
+  `node:<LTS>-alpine` is multi-arch.
 - **phpMyAdmin / MailHog** — replaced by Adminer / Mailpit.

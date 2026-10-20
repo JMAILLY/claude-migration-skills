@@ -23,7 +23,9 @@ iso-functional and low-risk. Reference implementations: `Project D` (Tailwind) a
 
 The project is Dockerized + Makefile-driven. Run the build inside the `node`
 service, never on the host — the host arch (esp. Apple Silicon/macOS) makes the
-`imagemin-*` native binaries fail with `ENOEXEC`, which is **not** a code bug.
+legacy `imagemin-*` native binaries fail with `ENOEXEC`, which is **not** a code
+bug. The migrated build uses `sharp` (prebuilt musl/arm64 binaries), which does
+not have this problem.
 
 | Need | Command |
 |---|---|
@@ -88,8 +90,8 @@ Verify each of these; they decide the approach and avoid nasty surprises:
      exists (a sibling theme restructured). This is usually **why** it was left
      out of `deploy`. Porting it turns a green build red.
    - **not in deploy, output committed** — images/sprites. The committed files
-     are the source of truth; a Vite imagemin plugin would rewrite hundreds of
-     tracked files for nothing. Drop it.
+     are the source of truth; a Vite image plugin would rewrite hundreds of
+     tracked files for nothing. Drop it, along with every `imagemin-*` package.
 
    Rule of thumb: if `deploy` doesn't call it and its output is committed or
    unreferenced, **leave it out and say so in the verdict**. Reproducing a broken
@@ -212,11 +214,15 @@ jQuery 4 step, never inside the iso-functional migration.
 
 The shape:
 
-1. **`package.json`** — drop every `gulp-*` + `browser-sync`/`pump`/`require-dir`;
-   add `vite sass esbuild postcss postcss-pxtorem imagemin
-   imagemin-{gifsicle,mozjpeg,optipng,svgo} cheerio fast-glob` (plus
-   `@vitejs/plugin-basic-ssl` **only for TLS Option A**, see step 4). Set
-   `"type": "module"`; scripts `dev: vite`, `build: vite build`. Delete `gulpfile.js`.
+1. **`package.json`** — drop every `gulp-*` + `browser-sync`/`pump`/`require-dir`,
+   and every `imagemin-*`. Add `vite sass esbuild postcss postcss-pxtorem sharp
+   svgo cheerio tinyglobby` (plus `@vitejs/plugin-basic-ssl` **only for TLS
+   Option A**, see step 4), each **at its latest version**. Set `"type": "module"`
+   and `engines.node` to the Node LTS major; scripts `dev: vite`,
+   `build: vite build`. Delete `gulpfile.js`. **Node = current Active LTS**
+   (24 as of late 2026, check endoflife.date) in the node image, `engines` and the
+   CI image. See "Versions" in the reference: `imagemin-*` and `fast-glob` pull
+   critical advisories that have no fix.
 2. **`vite.config.mjs`** — dev server (`basicSsl()` for TLS Option A, or plain
    HTTP behind Traefik for Option B; the theme's exposed port, `usePolling`,
    `wss` HMR); a `live-reload-templates` plugin full-reloading on
@@ -224,13 +230,16 @@ The shape:
    so `vite build` fires the plugins without a real entrypoint (classic JS can't
    be a Rollup input).
 3. **`plugins/`** (fork from Project D, parametrized, output to LEGACY paths):
-   - `vite-sass` — `style.scss` → `css/style.css`; `fast-glob` the per-paragraph
+   - `vite-sass` — `style.scss` → `css/style.css`; `tinyglobby` the per-paragraph
      SCSS (ignore `_*`) → `css/theme/…`; also admin `theme.scss` → `styles/dist`.
      Apply `postcss-pxtorem` **inside the plugin** (plugins bypass Vite's CSS
      pipeline, so `postcss.config` is not auto-applied).
    - `vite-copy-js` — recursive walk of `src/js`, esbuild-minify each file → `js/`,
      structure preserved.
-   - `vite-imagemin` — `fast-glob` `src/images` (ignore `sprites/**`) → `images/`.
+   - `vite-images` — **sharp + svgo**: `tinyglobby` `src/images` (ignore
+     `sprites/**`) → `images/`, with encoder settings equivalent to the old
+     imagemin task (lossless PNG, never `palette: true`; the old svgo plugin list
+     copied as-is) and never an output bigger than its source.
    - `vite-icon-sprite` — cheerio, one `<symbol id="<file>">` per SVG, strip
      `fill|stroke`, keep `viewBox` → `images/sprites.svg`.
    Every plugin runs its work in `buildStart` **and** `handleHotUpdate` (then
@@ -307,8 +316,16 @@ The shape:
 
 - **Build in the container** (not the host): a clean `npm install && npm run
   build` in `<project>-node:latest` must print every plugin's success line
-  (images only if you kept that plugin). Local macOS `ENOEXEC` on imagemin is
-  host-arch only.
+  (images only if you kept that plugin).
+- **Outputs vs snapshot**: CSS, JS and sprite byte-identical to the pre-change
+  build (reference § Verify); any CSS diff after a sass bump is the 1.92
+  mixed-decls change, not noise.
+- **Audit**: `make npm c='audit --include=dev'` → `found 0 vulnerabilities`, and
+  `make npm c='ls imagemin fast-glob gulp'` is empty. Any advisory left goes in
+  the MR with its `npm ls` path and the reason it stays.
+- **Images**: `images/` has the same file list as before (`git diff --stat`
+  if the outputs were tracked, else compare with a pre-migration build), and no
+  file got bigger.
 - **Inspect outputs**: `css/style.css` compressed + `font-size:*rem` (pxtorem
   applied); the expected count of per-paragraph CSS; minified single-line JS with
   structure preserved; a valid `sprites.svg`; hand-maintained CSS (ckeditor)
@@ -375,8 +392,10 @@ The shape:
 
 ## Gotchas (learned the hard way)
 
-- **imagemin ENOEXEC** on macOS/host arch is not a bug — verify in the container,
-  whose Dockerfile compiles `imagemin-*` from source for ARM/Alpine. Do **not**
+- **imagemin ENOEXEC** (legacy Gulp build) on macOS/host arch is not a bug —
+  verify in the container, whose Dockerfile compiles `imagemin-*` from source for
+  ARM/Alpine. The migrated build uses `sharp`, so the toolchain can leave the node
+  image once Gulp is gone. Do **not**
   trust another project's `-node` container as a reference: it may hold an x86
   prebuilt binary that fails under Rosetta.
 - **imagemin can fail even IN a correctly-provisioned container.** `optipng-bin`
@@ -386,6 +405,15 @@ The shape:
   start patching the Dockerfile: if `deploy` never called imagemin and the images
   are committed, **the answer is to drop the dependency**, which the migration does
   anyway. Confirm with `ls node_modules | wc -l` after a failed install.
+- **A `sass@latest` bump can reorder the cascade.** From 1.92.0, sass emits
+  `mixed-decls` trailing declarations as a separate later rule. Compare the CSS
+  with the pre-bump snapshot; if it differs, pin `~1.91.0` until `sass-migrator`
+  has fixed the mixed-decls (reference § Versions).
+- **npm 11 (Node 24) holds install scripts** for review: approve `esbuild`, deny
+  `node-gyp` rebuilds of prebuilt packages, and commit `allowScripts`.
+- **`>` inside `c='…'` is a shell redirection** in the Makefile recipe
+  (`pkg set engines.node=>=24` creates an empty file `=24`). Edit `package.json`
+  directly.
 - **Host dev-server port collides across GM projects** (each `-node` may publish
   the same port) → only one dev server at a time; `strictPort:true` fails loudly.
   That includes *your own* verification server (see Step 4).

@@ -16,22 +16,78 @@ written to the **legacy** output folders so `*.libraries.yml` stays untouched.
     "build": "vite build"
   },
   "devDependencies": {
-    "@vitejs/plugin-basic-ssl": "^2.0.0",
-    "cheerio": "^1.0.0",
-    "esbuild": "^0.24.0",
-    "fast-glob": "^3.3.3",
-    "imagemin": "^9.0.0",
-    "imagemin-gifsicle": "^7.0.0",
-    "imagemin-mozjpeg": "^10.0.0",
-    "imagemin-optipng": "^8.0.0",
-    "imagemin-svgo": "^11.0.1",
-    "postcss": "^8.4.14",
-    "postcss-pxtorem": "^6.0.0",
-    "sass": "^1.79.4",
-    "vite": "^6.2.3"
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "cheerio": "^1.2.0",
+    "esbuild": "^0.28.2",
+    "postcss": "^8.5.31",
+    "postcss-pxtorem": "^6.1.0",
+    "sass": "^1.105.2",
+    "sharp": "^0.35.5",
+    "svgo": "^4.1.0",
+    "tinyglobby": "^0.2.17",
+    "vite": "^8.3.4"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }
 ```
+
+These versions are a baseline. Install the current ones instead of copying them
+(see "Versions" below). `engines.node` = the Node LTS major of the node image.
+
+### Versions: latest packages, Node LTS
+
+- **Node**: the current **Active LTS** major, i.e. the newest major whose `lts`
+  date has passed on `https://endoflife.date/api/nodejs.json`. Odd majors and a
+  "Current" even major that has not reached its LTS date yet are never the
+  target. Use the same major in `docker/node/Dockerfile`
+  (`node:<major>-alpine`), `engines.node`, and the **CI image** (it builds the
+  production assets: a CI on an older Node is a mismatch to fix in the same MR,
+  or to list as a prerequisite when the image comes from another repository).
+- **Packages**: install every devDependency at its latest version in the
+  container, then read each package's major-version changelog (Vite and Sass
+  majors change config and deprecations):
+
+  ```bash
+  make npm c='install -D vite@latest sass@latest esbuild@latest postcss@latest postcss-pxtorem@latest cheerio@latest tinyglobby@latest sharp@latest svgo@latest'
+  make npm c='install -D @vitejs/plugin-basic-ssl@latest'   # TLS Option A only
+  ```
+
+- **No `imagemin-*`, no `fast-glob`.** The imagemin encoders download and compile
+  binaries through `bin-build` / `bin-wrapper`, which pull `decompress`, `got`,
+  `semver-regex`, `http-cache-semantics` and an old `cross-spawn`. Several of
+  them carry critical advisories that have **no fix**: `npm audit fix` cannot
+  clear them. `fast-glob` brings `micromatch` → `braces` (another unfixed
+  advisory). `sharp` + `svgo` ship prebuilt binaries, and `tinyglobby` is the
+  glob library Vite itself uses.
+- **`sass` ≥ 1.92.0 changes the compiled CSS** when the source still has
+  `mixed-decls` (declarations after a nested rule). The trailing declarations
+  are emitted as a separate rule *after* the nested children, which reorders the
+  cascade. On one reference project, `@latest` split seven rules
+  (`.btn{…;margin-top:25px}` became `.btn{…}` + a later `.btn{margin-top:25px}`).
+  Snapshot the outputs **before** the bump and compare them after (see Verify).
+  If the CSS differs, pin `"sass": "~1.91.0"`, the last version that keeps the
+  old output, and list the `sass-migrator` mixed-decls fix as the follow-up that
+  unpins it. Find the boundary on another project with
+  `npx -y sass@<v> --style=compressed --quiet <entry>.scss` against the snapshot.
+- **npm 11 (Node 24) blocks install scripts** until they are reviewed:
+  `npm warn install-scripts … not yet covered by allowScripts`. Decide each one
+  and commit the result (`allowScripts` in `package.json`):
+
+  ```bash
+  make npm c='install-scripts ls'
+  make npm c='install-scripts approve esbuild'          # binary check of the official package
+  make npm c='install-scripts deny @parcel/watcher'     # node-gyp rebuild; the prebuilt optional dep is enough
+  ```
+
+  Approve only what the build needs. A `node-gyp` rebuild of a package that ships
+  prebuilt binaries is a deny.
+- **Quote `>` in a `make` argument.** `make npm c='pkg set engines.node=>=24'`
+  goes through the shell again inside the Makefile recipe: `>` becomes a
+  redirection, writes an empty file named `=24` at the root, and sets nothing.
+  Edit `package.json` directly, or escape the value
+  (`c='pkg set "engines.node=>=24"'`), then check with `git status`.
 
 Delete `gulpfile.js`. After `npm install`, ~900 gulp packages drop out.
 
@@ -42,7 +98,7 @@ import { defineConfig, loadEnv } from 'vite';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import ViteSass from './plugins/vite-sass.js';
 import ViteCopyJs from './plugins/vite-copy-js.js';
-import ViteImagemin from './plugins/vite-imagemin.js';
+import ViteImages from './plugins/vite-images.js';
 import ViteIconSprite from './plugins/vite-icon-sprite.js';
 
 const PXTOREM = { propList: ['font-size'], replace: true, unitPrecision: 3 };
@@ -75,7 +131,7 @@ export default defineConfig(({ mode }) => {
         ],
       }),
       ViteCopyJs({ dev, srcDir: theme + '/src/js', destDir: theme + '/js' }),
-      ViteImagemin({ srcDir: theme + '/src/images', destDir: theme + '/images' }),
+      ViteImages({ srcDir: theme + '/src/images', destDir: theme + '/images' }),
       ViteIconSprite({ srcDir: theme + '/src/images/sprites', destFile: theme + '/images/sprites.svg' }),
       {
         name: 'noop-entry',
@@ -194,9 +250,9 @@ export default function ViteSass({ groups, pxtorem: pxtoremOptions, dev }) {
       await compileEntry(path.resolve(process.cwd(), input), path.resolve(process.cwd(), out));
     }
     if (group.glob) {
-      const { default: fg } = await import('fast-glob');
+      const { glob } = await import('tinyglobby');
       const base = path.resolve(process.cwd(), group.base);
-      const files = await fg(group.glob, { cwd: process.cwd(), ignore: ['**/_*.scss'] });
+      const files = await glob(group.glob, { cwd: process.cwd(), ignore: ['**/_*.scss'] });
       for (const file of files) {
         const abs = path.resolve(process.cwd(), file);
         const rel = path.relative(base, abs).replace(/\.scss$/, '.css');
@@ -267,63 +323,73 @@ export default function ViteCopyJs({ srcDir, destDir, dev }) {
 }
 ```
 
-## `plugins/vite-imagemin.js`
+## `plugins/vite-images.js` (sharp + svgo)
 
 ```js
 import { promises as fs } from 'fs';
 import path from 'path';
-import imagemin from 'imagemin';
-import gifsicle from 'imagemin-gifsicle';
-import mozjpeg from 'imagemin-mozjpeg';
-import optipng from 'imagemin-optipng';
-import svgo from 'imagemin-svgo';
+import sharp from 'sharp';
+import { optimize } from 'svgo';
 
-export default function ViteImagemin({ srcDir, destDir }) {
-  const plugins = [
-    gifsicle({ interlaced: true }),
-    mozjpeg({ quality: 75, progressive: true }),
-    optipng({ optimizationLevel: 5 }),
-    svgo({ plugins: [{ name: 'removeViewBox', active: true }] }),
-  ];
-  async function optimizeAll() {
-    const { default: fg } = await import('fast-glob');
-    const absSrc = path.resolve(process.cwd(), srcDir);
-    const absDest = path.resolve(process.cwd(), destDir);
-    const files = await fg('**/*.{png,jpg,jpeg,gif,svg,webp}', { cwd: absSrc, ignore: ['sprites/**'] });
-    for (const rel of files) {
-      const buffer = await imagemin.buffer(await fs.readFile(path.join(absSrc, rel)), { plugins });
-      const out = path.join(absDest, rel);
-      await fs.mkdir(path.dirname(out), { recursive: true });
-      await fs.writeFile(out, buffer);
+export default function ViteImages({ srcDir, destDir }) {
+  const absSrc = path.resolve(process.cwd(), srcDir);
+  const absDest = path.resolve(process.cwd(), destDir);
+
+  async function encode(file, input) {
+    switch (path.extname(file).toLowerCase()) {
+      case '.png':
+        return sharp(input).png({ compressionLevel: 9, effort: 10 }).toBuffer();
+      case '.jpg':
+      case '.jpeg':
+        return sharp(input).jpeg({ quality: 75, progressive: true, mozjpeg: true }).toBuffer();
+      case '.svg':
+        return Buffer.from(optimize(input.toString('utf8'), { path: file, plugins: ['removeViewBox'] }).data);
+      default:
+        return input;
     }
-    console.log('\x1b[32m%s\x1b[0m', '🚀 Images optimised');
   }
+
+  async function optimizeOne(rel) {
+    const input = await fs.readFile(path.join(absSrc, rel));
+    const output = await encode(rel, input);
+    const out = path.join(absDest, rel);
+    await fs.mkdir(path.dirname(out), { recursive: true });
+    // Never ship a re-encode that is bigger than its source.
+    await fs.writeFile(out, output.length < input.length ? output : input);
+  }
+
+  async function optimizeAll() {
+    const { glob } = await import('tinyglobby');
+    const files = await glob('**/*.{png,jpg,jpeg,gif,svg,webp}', { cwd: absSrc, ignore: ['sprites/**'] });
+    await Promise.all(files.map(optimizeOne));
+    console.log('\x1b[32m%s\x1b[0m', `🚀 Images optimised (${files.length})`);
+  }
+
   return {
-    name: 'vite-imagemin',
+    name: 'vite-images',
     buildStart() { return optimizeAll(); },
     async handleHotUpdate({ file, server }) {
-      if (/\.(png|jpe?g|gif|svg|webp)$/.test(file) && file.includes('/src/images/') && !file.includes('/sprites/')) {
-        await optimizeAll(); server.ws.send({ type: 'full-reload', path: '*' }); return [];
+      if (/\.(png|jpe?g|gif|svg|webp)$/.test(file) && file.startsWith(absSrc + path.sep) && !file.includes('/sprites/')) {
+        await optimizeOne(path.relative(absSrc, file)); server.ws.send({ type: 'full-reload', path: '*' }); return [];
       }
     },
   };
 }
 ```
 
-### Variant: sharp + svgo instead of imagemin (no C toolchain)
+### Encoder equivalence with the old imagemin task
 
-`sharp` and `svgo` ship prebuilt musl/arm64 binaries, which lets the node image
-drop `autoconf`/`build-base`/`nasm` — a real gain. But the encoders must stay
-**equivalent**, or the "iso-functional" migration silently degrades images:
+The migration is iso-functional, so each encoder must match what Gulp did:
 
-| Old (imagemin) | sharp equivalent | Trap |
+| Old (imagemin) | sharp / svgo | Trap |
 |---|---|---|
-| `optipng({ optimizationLevel: 5 })` — lossless | `.png({ compressionLevel: 9, effort: 10 })` | **never `palette: true`**: that quantises to 256 colours (banding on gradients, degraded alpha) — a lossy change a reviewer will flag |
+| `optipng({ optimizationLevel: 5 })`, lossless | `.png({ compressionLevel: 9, effort: 10 })` | **never `palette: true`**: it quantises to 256 colours (banding on gradients, degraded alpha), a lossy change a reviewer will flag |
 | `mozjpeg({ quality: 75, progressive: true })` | `.jpeg({ quality: 75, progressive: true, mozjpeg: true })` | — |
-| `gifsicle({ interlaced: true })` | none — copy as-is | say so in the MR |
+| `gifsicle({ interlaced: true })` | none, copied as-is | say so in the MR |
+| `svgo({ plugins: [{ name: 'removeViewBox' }] })` | `optimize(svg, { plugins: ['removeViewBox'] })` | a `plugins` list **replaces** `preset-default`. Copy the old list exactly; do not switch to `preset-default` in passing. Read the gulpfile's real options rather than these values |
+| `.webp` with no imagemin plugin | copied as-is | — |
 
-Keep "never write an output bigger than its source". If a lossy setting is
-wanted for the size win, it is a separate, visually-validated change.
+A lossy setting for the size win is a separate change, validated visually.
 
 ## `plugins/vite-icon-sprite.js`
 
@@ -546,8 +612,24 @@ docker run --rm -v "$(pwd)":/var/www/html -w /var/www/html <project>-node:latest
   sh -c 'rm -rf node_modules && npm install --no-audit --no-fund && npm run build'
 ```
 
-Expect all four "🚀 …" lines incl. **Images optimised**. `spawn ENOEXEC` /
-`rosetta error … ld-linux-x86-64.so.2` only happens on the host or a container
-holding an x86 prebuilt binary — the project's own node image compiles
-`imagemin-*` from source for ARM/Alpine.
+Expect all four "🚀 …" lines incl. **Images optimised**. Compare with the
+snapshot taken from the Gulp build (or from the build before a dependency bump):
+
+```bash
+S=<scratchpad>/before; T=web/themes/custom/<theme>
+diff -rq "$S/css" "$T/css"; diff -rq "$S/js" "$T/js"; cmp "$S/images/sprites.svg" "$T/images/sprites.svg"
+diff <(cd "$S/images" && find . -type f | sort) <(cd "$T/images" && find . -type f | sort)
+```
+
+Target: CSS, JS and sprite byte-identical, and the same image list with no
+noticeable size regression (a few bytes on a PNG where optipng beat sharp is
+normal: list them in the MR). Then the audit:
+
+```bash
+make npm c='audit --include=dev'      # target: found 0 vulnerabilities
+make npm c='ls imagemin fast-glob gulp' # target: (empty)
+```
+
+Each advisory left must be listed in the MR with its path (`npm ls <pkg>`) and
+why it stays (no fix upstream, dev-only, not reachable from the build).
 ```
