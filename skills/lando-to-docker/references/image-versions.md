@@ -58,7 +58,7 @@ target, even when they are the newest tag.
 | `httpd:2.4-alpine` | `docker/apache/Dockerfile` | supported | — |
 | `mariadb:11.8` | `docker/compose/dev/docker-compose.yml` | LTS, = prod | 12.3 (LTS), held back: prod is on 11.8 |
 | `adminer:6.1.2` | `docker/compose/dev/docker-compose.yml` | bumped from 5.4.2 | — |
-| `node:24-alpine` | `docker/node/Dockerfile` | Active LTS, bumped from 22 | — (26 becomes LTS on its `lts` date) |
+| `node:24-alpine` | `docker/compose/dev/docker-compose.yml` | Active LTS, bumped from 22 | — (26 becomes LTS on its `lts` date) |
 | `php:8.4-fpm` | `docker/php/Dockerfile` | supported, = prod | 8.5, held back: prod on 8.4 |
 
 "Status" holds the support state (endoflife.date) plus why the version was kept.

@@ -32,7 +32,7 @@ not have this problem.
 | Install deps | `make npm-install` (or `make npm c='install'`) |
 | Dev server (watch + HMR) | `make npm-dev` |
 | Production build | `make npm-build` |
-| One-off verify build | `docker run --rm -v "$(pwd)":/var/www/html -w /var/www/html <project>-node:latest sh -c 'rm -rf node_modules && npm install && npm run build'` |
+| One-off verify build | `docker run --rm -v "$(pwd)":/var/www/html -w /var/www/html node:<LTS>-alpine sh -c 'rm -rf node_modules && npm install && npm run build'` |
 
 ## Step 0 — Feasibility verdict (say this out loud first)
 
@@ -315,7 +315,7 @@ The shape:
 ## Step 4 — Verify (do not skip)
 
 - **Build in the container** (not the host): a clean `npm install && npm run
-  build` in `<project>-node:latest` must print every plugin's success line
+  build` in `node:<LTS>-alpine` must print every plugin's success line
   (images only if you kept that plugin).
 - **Outputs vs snapshot**: CSS, JS and sprite byte-identical to the pre-change
   build (reference § Verify); any CSS diff after a sass bump is the 1.92
@@ -394,8 +394,9 @@ The shape:
 
 - **imagemin ENOEXEC** (legacy Gulp build) on macOS/host arch is not a bug —
   verify in the container, whose Dockerfile compiles `imagemin-*` from source for
-  ARM/Alpine. The migrated build uses `sharp`, so the toolchain can leave the node
-  image once Gulp is gone. Do **not**
+  ARM/Alpine. The migrated build uses `sharp`, so the toolchain leaves with Gulp —
+  and so does `docker/node/Dockerfile` when it is left with only `FROM` +
+  `WORKDIR`: switch the compose service to `image: node:<LTS>-alpine`. Do **not**
   trust another project's `-node` container as a reference: it may hold an x86
   prebuilt binary that fails under Rosetta.
 - **imagemin can fail even IN a correctly-provisioned container.** `optipng-bin`

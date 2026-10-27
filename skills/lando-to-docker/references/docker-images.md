@@ -202,22 +202,22 @@ EXPOSE 80
 </VirtualHost>
 ```
 
-## `docker/node/Dockerfile`
+## `docker/node/Dockerfile` (toolchain form only)
 
 The base is `node:<Active LTS>-alpine`, 24 as of late 2026, resolved with
 `image-versions.md` (runs natively on arm64 **and** amd64 — do
 NOT force `platform: linux/amd64`, and do NOT create a `Dockerfile.x64`; that is
-a dead Lando-era leftover). The build toolchain + `CFLAGS` block is **only**
-needed when the frontend uses `gulp-imagemin` / `imagemin-optipng` (see
-`frontend-build.md`). Minimal form for a project without native imagemin:
+a dead Lando-era leftover).
 
-```dockerfile
-FROM node:24-alpine
-WORKDIR /var/www/html
-```
+**No toolchain needed (Vite, Tailwind, esbuild, images through `sharp`): write no
+Dockerfile.** A `FROM node:<LTS>-alpine` + `WORKDIR` file adds nothing — the
+compose service already sets `working_dir` — so the service uses
+`image: node:<LTS>-alpine` directly (`compose-traefik.md`). A reviewer will
+rightly flag such a file as dead weight.
 
-Form required when `imagemin-optipng` is a dependency (compiles optipng/libpng
-from source; the prebuilt binary is glibc/x86-64 and fails on Alpine musl / ARM):
+The Dockerfile exists only when `imagemin-optipng` is a dependency (`frontend-build.md`):
+it compiles optipng/libpng from source, since the prebuilt binary is glibc/x86-64
+and fails on Alpine musl / ARM. The service then uses `build: context: docker/node`:
 
 ```dockerfile
 FROM node:24-alpine

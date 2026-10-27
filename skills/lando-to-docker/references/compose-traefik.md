@@ -137,8 +137,7 @@ services:
       - app-internal
 
   node:
-    build:
-      context: ../../node
+    image: node:24-alpine                    # `build: context: ../../node` only for the imagemin toolchain form
     working_dir: /var/www/html
     command: ["tail", "-f", "/dev/null"]     # idle; commands run via `make npm-*`
     volumes:

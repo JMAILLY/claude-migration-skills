@@ -41,8 +41,9 @@ These versions are a baseline. Install the current ones instead of copying them
 - **Node**: the current **Active LTS** major, i.e. the newest major whose `lts`
   date has passed on `https://endoflife.date/api/nodejs.json`. Odd majors and a
   "Current" even major that has not reached its LTS date yet are never the
-  target. Use the same major in `docker/node/Dockerfile`
-  (`node:<major>-alpine`), `engines.node`, and the **CI image** (it builds the
+  target. Use the same major in the compose `node` service
+  (`image: node:<major>-alpine`; once imagemin is gone, delete a
+  `FROM` + `WORKDIR`-only `docker/node/Dockerfile`), `engines.node`, and the **CI image** (it builds the
   production assets: a CI on an older Node is a mismatch to fix in the same MR,
   or to list as a prerequisite when the image comes from another repository).
 - **Packages**: install every devDependency at its latest version in the
@@ -608,7 +609,7 @@ Plus the render-cache nulling that the Docker/local settings usually already hav
 ## Verify build in-container (authoritative)
 
 ```bash
-docker run --rm -v "$(pwd)":/var/www/html -w /var/www/html <project>-node:latest \
+docker run --rm -v "$(pwd)":/var/www/html -w /var/www/html node:<LTS>-alpine \
   sh -c 'rm -rf node_modules && npm install --no-audit --no-fund && npm run build'
 ```
 

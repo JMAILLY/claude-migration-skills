@@ -84,9 +84,10 @@ MR.
 
 Create the image/config files verbatim from **`references/docker-images.md`**:
 `docker/php/{Dockerfile,entrypoint.sh,php.ini,www.conf,xdebug.ini}`,
-`docker/apache/{Dockerfile,vhost.conf}`, `docker/node/Dockerfile`, and
-`.dockerignore`. Pick the node Dockerfile form based on the frontend decision
-(toolchain only if `imagemin`/`optipng` is a dependency).
+`docker/apache/{Dockerfile,vhost.conf}`, and `.dockerignore`. The node
+service uses the `node:<LTS>-alpine` image directly; write
+`docker/node/Dockerfile` **only** if `imagemin`/`optipng` is a dependency
+(toolchain form) — a `FROM` + `WORKDIR`-only Dockerfile is dead weight.
 
 > Do not skip `www.conf` (`clear_env = no`) — it is load-bearing: without it the
 > env-driven DB/Redis/SMTP config in `settings.php` is silently empty. Which of

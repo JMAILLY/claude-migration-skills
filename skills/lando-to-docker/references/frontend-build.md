@@ -16,16 +16,19 @@ that shells out to a native binary):
 grep -E 'imagemin|optipng|mozjpeg|gifsicle' package.json web/themes/custom/*/package.json 2>/dev/null
 ```
 
-- **Match found** → use the toolchain form of `docker/node/Dockerfile` (apk
+- **Match found** → write the toolchain `docker/node/Dockerfile` (apk
   build-base + `CFLAGS=-DPNG_ARM_NEON_OPT=0`, see `docker-images.md`). The
   prebuilt `optipng` binary is glibc/x86-64 and fails on Alpine musl / ARM64, so
   it compiles from source; the NEON flag lets libpng link on arm64.
-- **No match** (pure esbuild/Vite/Tailwind, or images through `sharp`) → the
-  minimal `node:<LTS>-alpine` form is enough.
+- **No match** (pure esbuild/Vite/Tailwind, or images through `sharp`) → **no
+  Dockerfile**: the compose service uses `image: node:<LTS>-alpine` directly.
+  When migrating a project that already has a `FROM` + `WORKDIR`-only
+  `docker/node/Dockerfile`, delete it and switch the service to `image:`.
 
 > The toolchain form only keeps a legacy Gulp build running. `gulp-to-vite`
 > replaces imagemin with `sharp` + `svgo` (prebuilt binaries, no unfixed
-> advisories), which removes the toolchain requirement. The `gulp-to-vite` skill covers replacing Gulp; this
+> advisories), which removes the toolchain requirement — and with it the node
+> Dockerfile. The `gulp-to-vite` skill covers replacing Gulp; this
 > skill only needs the build to *run* in the container.
 
 ## Decision 2 — how the dev server / HMR is wired

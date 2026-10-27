@@ -15,6 +15,18 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [2.1.1] — 2026-10-27
+
+### Changed
+
+- `lando-to-docker`: no `docker/node/Dockerfile` unless the imagemin toolchain
+  is needed. A `FROM` + `WORKDIR`-only file duplicated the compose
+  `working_dir`; the `node` service now uses `image: node:<LTS>-alpine`
+  directly. The image-versions report points at the compose file.
+- `gulp-to-vite`: once imagemin is gone, delete a `FROM` + `WORKDIR`-only node
+  Dockerfile and switch the service to `image:`; the in-container verify build
+  runs on `node:<LTS>-alpine` instead of a locally built `<project>-node` image.
+
 ## [2.1.0] — 2026-10-20
 
 ### Added
