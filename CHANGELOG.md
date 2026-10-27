@@ -15,6 +15,61 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+### Added
+
+- `drupal-build`: orchestrator for building a Drupal site from a
+  specification document (CDC) and a Figma mockup. Stateless and re-entrant:
+  reads `.build/state.md`, recomputes statuses from git and `glab`, offers the
+  units whose dependencies are met (optional auto mode for simple ones),
+  rebases stacked units once their parent lands, proposes `/gm:archi-c4` at
+  milestones. One unit per conversation. References: `build-memory.md` (the
+  split `.build/` memory and its loading rules), `demo-content.md` (the
+  local-only `gm_demo` module, its fixtures, Drush commands and locks),
+  `testing.md` (PHPUnit, Playwright service, axe, visual regression, Make
+  targets, CI), `screenshots.md` (Chrome for the Figma comparison, Playwright
+  for the MR captures, GitLab uploads); templates for every `.build/` file.
+- `drupal-build-intake`: phase 0 — full CDC reading and Figma inventory,
+  `REQ-xxx` matrix, gap analysis, one round of blocking questions, build plan
+  with dependency graph, `.build/` creation. No code.
+- `drupal-build-foundations`: phase 1 — style guide to `@theme` tokens with an
+  AA contrast report, base components in every state, editor styles,
+  `gm_demo` with `/styleguide`, test tooling. Reference `design-tokens.md`.
+- `drupal-build-unit`: the per-unit loop (scoping, Figma by node id, gaps,
+  brief, branch, implementation, self-verification on every delivered unit,
+  RGAA, review, captures, local UAT, Draft MR). One reference per category.
+- `drupal-rgaa`: RGAA check with a frozen call contract; initial version
+  applies the RGAA 4.1 criteria per component category.
+- `drupal-build` family, after a dry run against a real CDC:
+  - intake reads MHTML exports (Confluence / Word "web page") and their
+    embedded mockup captures, flags inconsistencies inside the CDC, pending
+    dated changes and browser targets older than Tailwind 4's baseline, and
+    asks up front about multisite, client-customisable colours and a source
+    site to port blocks from; the build always starts from the starter;
+  - multisite reference (`multisite.md`): one codebase and theme, one database
+    per site, `config_ignore`, per-site fixtures, tests and captures;
+  - palette model in `design-tokens.md`: `palette` terms with a colour picker,
+    CSS custom properties with Figma fallbacks, per-block colours through
+    `--block-*` properties, contrast owned by a recorded decision;
+  - new unit categories `media` (media types, pictograms, button field,
+    CKEditor features) and `integration` (one third-party service per unit,
+    secrets in env, production prerequisites in the MR);
+  - oversized units split into sub-units; paragraph → paragraph dependencies
+    and containers that accept any block;
+  - Playwright blocks external hosts by default; the demo generator handles
+    config entities (kept out of `config/sync` by the dev split) and per-site
+    fixtures.
+- `drupal-build` family, after a dry run against a real Figma file:
+  - `drupal-build-intake/scripts/figma-inventory.py`: Figma metadata dumps
+    (often over 100k characters) are never read raw; the script turns them
+    into a short page inventory and prints documentation frames as tables;
+  - a breakpoint or state the design does not draw is built in its simplest
+    functional version, without a question; incomplete or inconsistent design
+    (missing font files, missing components, documentation vs variables,
+    validation status, design accessibility checklist) is asked case by case
+    in the intake;
+  - assets exported as SVG into the theme sources for the sprite build;
+  - the header search only when the CDC asks; `drupal-rgaa` on RGAA 4.1.2.
+
 ## [2.1.1] — 2026-10-27
 
 ### Changed

@@ -10,7 +10,7 @@
     {
       "name": "claude-migration-skills",
       "source": "./",
-      "description": "Web migration/modernization skills for Dockerized, Makefile-driven projects: lando-to-docker sets up the Docker Compose + Makefile dev environment the others depend on; an orchestrated Drupal 10 → 11 upgrade (d11) delegating to php-docker-upgrade, php-deprecations-audit and jquery-4-migration (each usable standalone); drupal-scaffold for scaffold files under composer control; the Gulp → Vite front build migration (gulp-to-vite); SCSS modernization with sass-migrator (sass-migrator); and a PHP_CodeSniffer + PHPStan campaign (php-standards) delegating to phpcbf, phpcs and phpstan, with optional CI jobs.",
+      "description": "Web migration/modernization skills for Dockerized, Makefile-driven projects: lando-to-docker sets up the Docker Compose + Makefile dev environment the others depend on; an orchestrated Drupal 10 → 11 upgrade (d11) delegating to php-docker-upgrade, php-deprecations-audit and jquery-4-migration (each usable standalone); drupal-scaffold for scaffold files under composer control; the Gulp → Vite front build migration (gulp-to-vite); SCSS modernization with sass-migrator (sass-migrator); and a PHP_CodeSniffer + PHPStan campaign (php-standards) delegating to phpcbf, phpcs and phpstan, with optional CI jobs; and a Drupal site build from a CDC and a Figma (drupal-build) delegating to drupal-build-intake, drupal-build-foundations, drupal-build-unit and drupal-rgaa.",
       "version": "2.1.1",
       "category": "development",
       "author": {
