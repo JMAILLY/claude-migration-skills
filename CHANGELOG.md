@@ -15,6 +15,8 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [2.2.0] — 2026-11-03
+
 ### Added
 
 - `drupal-build`: orchestrator for building a Drupal site from a
@@ -472,7 +474,9 @@ that are Dockerized and driven by a `Makefile`.
 - **`sass-migrator`** (any stack) — migration off deprecated Dart Sass syntax
   with a harness that proves the compiled CSS is byte-identical.
 
-[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.1.1...v2.2.0
+[2.1.1]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.0.4...v2.1.0
 [2.0.4]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.0.3...v2.0.4
 [2.0.3]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.0.2...v2.0.3
