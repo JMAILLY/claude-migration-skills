@@ -15,6 +15,52 @@ What each bump means for a **skill pack**:
 
 ## [Unreleased]
 
+## [2.3.0] — 2026-11-06
+
+Field feedback from a first full run (intake, foundations, first unit).
+
+### Added
+
+- `drupal-build`: statuses `blocked` (from a `Pending` section in
+  `state.md`) and `pushed` (MR on request); `step` mode, a pause before every
+  step; a full plan view by dependency waves; the chosen unit's scope as a
+  numbered list; a rule to downgrade a pending item after an interim answer.
+- `drupal-build-intake`: `scripts/mht2txt.py` splits a Confluence or Word
+  MHTML export into markdown and its images; `figma-inventory.py --blocks`
+  identifies default-named blocks (y offset, size, instances, first texts),
+  and `--texts` groups by direct child.
+- `drupal-build-foundations`: an optional stacked split (tokens → components
+  → style guide → tests), a component cross-check table against REQs and
+  mockup instances, a preview recipe before `/styleguide` exists.
+
+### Changed
+
+- `drupal-build`: push and MR are always their own question; Step 0 handles
+  a non-integration branch, unrelated uncommitted changes, `glab` missing and
+  GitLab retargeting stacked MRs by itself.
+- `drupal-build-intake`: pages are never dropped on their name (an archive
+  may hold the only frames of a breakpoint); each Figma dump is copied to
+  `raw/` at once; variables read on a page frame too; unbound fills listed by
+  default; orphan style guide components flagged; points the CDC already
+  settles listed apart, with quotes; multisite follow-ups asked in one round;
+  open questions persisted in `state.md`; source-site triage table.
+- `drupal-build-unit`: `/gm:drupal` loaded at plan time for backend units.
+- `testing.md`: visual references frozen only after PO/client acceptance
+  (`ACCEPTED` flag); PHPUnit CI job only when the pipeline runs on MRs.
+
+### Fixed
+
+- `demo-content.md`: phpstan level 5 errors in the generator, wrong `Yaml`
+  class, token parsing of `--font-weight-*` and `--text-*--line-height`,
+  pager page numbers renumbered by Twig `merge`; adds the form-states
+  `FormBase`, an `h1`, the inverted context and the `authenticated` partial
+  split.
+- `testing.md`: PHPUnit fatal at shutdown under Xdebug `develop`
+  (`XDEBUG_MODE=off`), CORS error from the Vite dev host, sticky elements in
+  element captures (`hideFloating`), silent pass of a broken Tab loop.
+- `screenshots.md`: `require()` fails in an ES module project.
+- `design-tokens.md`: named spacing tokens shadow `max-w-*` sizes.
+
 ## [2.2.0] — 2026-11-03
 
 ### Added
@@ -474,7 +520,8 @@ that are Dockerized and driven by a `Makefile`.
 - **`sass-migrator`** (any stack) — migration off deprecated Dart Sass syntax
   with a harness that proves the compiled CSS is byte-identical.
 
-[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.1.1...v2.2.0
 [2.1.1]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/JMAILLY/claude-migration-skills/compare/v2.0.4...v2.1.0
