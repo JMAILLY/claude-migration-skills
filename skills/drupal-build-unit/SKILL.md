@@ -47,7 +47,10 @@ sed -n '/^## Contract/,$p' .build/units/<dependency>.md     # each dependency, f
 grep -E '^## D-' .build/decisions.md                         # then only the relevant entries
 ```
 
-Then the category reference. Nothing else: not the full CDC, not a Figma
+Then the category reference, and **`/gm:drupal`** whenever the unit has
+backend work (config, fields, PHP, hooks, services): its rules (services and
+dependency injection, thin hooks, cacheability, pure logic with unit tests)
+shape the plan of Step 4, not only the code of Step 6. Nothing else: not the full CDC, not a Figma
 page, not a dependency's code. When the brief names a **source bundle** (a
 block ported from the source site in `state.md`), read only that bundle's
 files there: its config, template, preprocess and CSS. A Contract that does not answer a question is
@@ -85,7 +88,8 @@ decisions » (project-wide ones in `decisions.md`).
 
 ## 4. Brief and action plan
 
-Written in the brief's Plan section, presented in French, in the shape of a
+Show the scope first as a numbered French list (from the brief), so the
+human can reference items. Then the plan, written in the brief's Plan section, presented in French, in the shape of a
 `/gm:ticket` brief without a ticket:
 
 - **Objectif** — one or two sentences.
@@ -105,7 +109,13 @@ Written in the brief's Plan section, presented in French, in the shape of a
   (`testing.md`).
 
 Wait for validation, then record the date in the Plan. **Auto mode**
-(`mode: auto` in `state.md`): write the plan, show it, do not wait.
+(`mode: auto` in `state.md`): write the plan, show it, do not wait. **Step
+mode** (`mode: step`): also pause before each of Steps 5 to 9, saying what
+the step will do.
+
+A unit with **no REQ of its own** (a media type, the editor configuration,
+a shared card) takes its acceptance criteria from the REQs of the units it
+serves, listed in its brief.
 
 ## 5. Branch
 
@@ -116,11 +126,16 @@ git switch -c build/<id> origin/develop
 
 **No stacking by default.** Only when a dependency is in an unmerged MR:
 branch from that MR's branch instead, target it in the MR, and write
-« Dépend de !X, à fusionner après » in the description.
+« Dépend de !X, à fusionner après » in the description. With several unmerged
+dependencies on one cascade, branch from the **last** one of the cascade.
+
+`make cex` showing drift this unit did not cause: never fold it into the
+unit's commit. Revert it and tell the human.
 
 ## 6. Implementation
 
-Load **`/gm:drupal`** for the backend and follow the starter:
+**`/gm:drupal`** (loaded since the plan) for the backend, and follow the
+starter:
 
 - the `Gm*` entity classes and `entityField()` for field access;
 - `gm_router` slugs instead of any hard-coded id or path;
@@ -177,6 +192,10 @@ make cim && make demo && make test-all      # every delivered unit, not only thi
 - **Visual comparison with Figma in Chrome** (`screenshots.md`): every
   breakpoint, every state (hover, focus, disabled, error, open), on the demo
   pages. Fix spacing, typography and colour gaps.
+- A quick `curl` check of a page needs a browser `User-Agent`: the starter's
+  `.htaccess` answers 403 to unknown bots.
+- Visual references are **not** created at delivery: the spec keeps
+  `ACCEPTED = false` until the PO or client accepts the unit (`testing.md`).
 
 ## 8. End validations — both, in this order
 
@@ -209,7 +228,10 @@ to Step 9 only with a clean verdict from both.
    - [ ] Back-office (demo-editor) : /node/add/page → ajouter un bloc FAQ avec 2 questions → enregistré, rendu identique.
    ```
 
-3. **`/gm:merge-request`**: Draft MR to `develop` (or to the parent branch
+3. **Ask before pushing**, as its own question, never inside another
+   choice. If the human prefers to wait, commit only, record « MR on
+   request » in `state.md` and stop there.
+   **`/gm:merge-request`**: Draft MR to `develop` (or to the parent branch
    when stacked). No ticket and **no chronogram reminder**: it is a build
    project. Description, in French: summary, REQs covered, gaps and
    decisions, UAT, captures, results of phpcs, phpstan, `make test-all`,
