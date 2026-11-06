@@ -39,9 +39,10 @@ Formats: `../drupal-build/references/build-memory.md` and the templates in
 ls .build 2>/dev/null && grep -E '^plan:' .build/state.md
 ```
 
-- `.build/` exists with `plan: draft`: the reading is done. Load `state.md`,
-  the decisions titles and the requirements header, then resume at Step 5
-  with the human's latest answers. Do not re-read the CDC.
+- `.build/` exists with `plan: draft`: the reading is done. Load `state.md`
+  (its `Open questions` section holds the questions asked and not yet
+  answered), the decisions titles and the requirements header, then resume
+  at Step 4 or 5 with the human's latest answers. Do not re-read the CDC.
 - `plan: validated`: nothing to do here; go back to `drupal-build`.
 
 ## Context budget and subagents
@@ -56,6 +57,16 @@ you go so nothing depends on the conversation.
 
 ## Step 1 — Read the CDC in full
 
+Create the memory first: rows are written as you read, not at the end.
+
+```bash
+mkdir -p .build/units .build/figma/raw .build/screenshots
+grep -qxF '/.build/' .git/info/exclude || echo '/.build/' >> .git/info/exclude
+```
+
+Several candidate files (`cdc.doc`, `cdc(1).doc`, two exports): compare
+them with `md5` before asking which one is current.
+
 **Get text out of the file first**, into the scratchpad, never into the
 project:
 
@@ -63,8 +74,14 @@ project:
 |---|---|
 | PDF | `Read` with `pages`, 20 at a time (the `pdf` skill for tables) |
 | docx | the `docx` skill |
-| `.doc` / `.mht` that `file` reports as text, starting with `MIME-Version` | a **MHTML export** (Confluence, Word "web page"): one HTML part plus the images. Split it with Python's `email` module (`python3 -I`), turn the HTML into text keeping headings, lists and table cells, save the images |
+| **MHTML export** (Confluence, Word "web page"), whatever its extension: `file` says « news or mail text » or « MIME », or a `MIME-Version` header is in the first lines (a Confluence export starts with `Date:`) | `python3 -I <skill-dir>/scripts/mht2txt.py <file> <scratchpad>/cdc` → `text.md` (headings, nested lists, table rows) and every non-HTML part in `images/`, referenced in the text as `[image: <file>]` |
 | Link | the matching connector, or ask for an export |
+
+Confluence sends its images as `application/octet-stream`: never filter the
+parts on `image/*` (the script sniffs the bytes). Its captures are
+**250 px-high thumbnails**: unreadable as mockups, only useful to locate the
+matching Figma nodes. A Confluence export has no page numbers: requirement
+sources are `§` only.
 
 Then:
 
@@ -96,39 +113,59 @@ past 100,000 characters (the tool result is then saved to a file) and is
 noise anyway. Every dump goes through `scripts/figma-inventory.py` (this
 skill's directory), and only its short markdown output is read.
 
-1. **Pages.** `get_metadata` without `nodeId` lists the pages. Drop the ones
-   out of scope — archives (« Sauvegardes », « Archive », « Old »),
-   separators (`---`), drafts — and ask when unsure.
-2. **One dump per page, on disk.** `get_metadata` on the page. When the
-   result is saved to a file, use that file; otherwise write the output to
-   `.build/figma/raw/<page>.txt` without reading it.
+1. **Pages.** `get_metadata` without `nodeId` lists the pages. Show the list
+   to the human and ask which ones are archives, separators or drafts,
+   rather than dumping everything: a small page's metadata comes back
+   **inline** (there is no way to force it to disk), so every dump costs
+   context. **Never drop a page on its name alone**: an « OLD » page may hold
+   the only frames of a breakpoint. Before dropping one, run the inventory
+   on it and read « Screens by width »; ask when it carries widths no
+   in-scope page has.
+2. **One dump per page, on disk.** `get_metadata` on the page. **Right after
+   each call**, copy the result to `.build/figma/raw/<page>.txt`: the file
+   name the MCP picks is opaque, and mapping dumps to pages later by call
+   order is error-prone. When it came back inline, write it there without
+   reading it again.
 3. **Inventory.** Run the script, write its output to `.build/figma/`:
 
    ```bash
    python3 -I <skill-dir>/scripts/figma-inventory.py <dump> --depth 3 --out .build/figma/<page>.md
+   python3 -I <skill-dir>/scripts/figma-inventory.py <dump> --node <id> --blocks
    python3 -I <skill-dir>/scripts/figma-inventory.py <dump> --node <id> --texts
    ```
 
    The inventory gives the tree (section → screen → block) with ids and
    sizes, the screens by width (the breakpoints actually drawn), the
    component instances by name (what is a real component, what is a loose
-   frame), and the count of default-named frames. `--texts` prints the text
-   of a documentation frame (grid, colours, spacing, checklists) in reading
-   order, as table rows; confirm a table with a screenshot, the row grouping
-   is positional.
+   frame), and the count of default-named frames. `--blocks` lists the
+   direct children of a screen's content frame top to bottom, with their y
+   offset, size, component instances and first texts: that is how blocks
+   with default names (`Frame 337`) are identified. `--texts` prints the
+   text of a documentation frame (grid, colours, spacing, checklists) in
+   reading order, one group per direct child (one checklist widget, one
+   table); confirm a table with a screenshot, the row grouping is
+   positional.
 4. **Drill down only where needed**: `get_metadata` on one section or block,
    `get_screenshot` downloaded to the scratchpad at 600–1000 px and viewed
-   only to identify an unnamed block, `get_variable_defs` on the style guide
-   frames, `get_design_context` on **style guide components only** in this
-   phase.
+   only to identify an unnamed block, `get_design_context` on **style guide
+   components only** in this phase.
+5. **Variables.** `get_variable_defs` on the style guide frames **and** on
+   one full page frame: the two return different sets (a spacing scale may
+   only be bound in the pages, never in the `Espacement` frame). The
+   fallback values printed in `get_design_context` (`var(--x, #e94b64)`) are
+   often stale: only variables, actual fills and decisions are values.
+6. **Unbound values** — a default step, read only: a `use_figma` script
+   (load `figma:figma-use` first) that lists the fills and spacings **not
+   bound to a variable**, with their counts. A variable may say one colour
+   while hundreds of nodes hard-code another (the CDC's): the palette
+   defaults and the main colour depend on it. The tool can write, so the
+   script only reads and returns data.
+7. **Mobile ids.** For every page template, note the node id of each block
+   on **every** drawn breakpoint (`--blocks` on each screen), not only the
+   desktop: the briefs need them and a unit should not have to drill down.
 
 `.build/figma/raw/` is never read again; the units use the node ids written
 in their briefs.
-
-Optional, with the human's agreement: a read-only `use_figma` script (load
-`figma:figma-use` first) to list the fills and spacings **not bound to a
-variable** — the hard-coded values a palette or a token table must absorb.
-It can write to the file, so the script only reads and returns data.
 
 Identify:
 
@@ -137,7 +174,12 @@ Identify:
 - the **page templates** per breakpoint (home, listing, detail, form, search,
   403/404…);
 - the **components** and their variants and states (hover, focus, open,
-  error, empty, long content), and where each appears;
+  error, empty, long content), and where each appears. **Cross the style
+  guide components with the mockup instance counts and the REQ matrix**: a
+  component no mockup uses and no REQ asks for (a decorative bar, a
+  removable tag, a custom drop-down) is often a leftover of the file it was
+  copied from. Flag it « non utilisé, non demandé »: the foundations build
+  only what the CDC or a mockup needs;
 - the breakpoints actually drawn (frame widths);
 - the **documentation frames** (grid, colours, spacing, typography), read with
   `--texts`;
@@ -151,14 +193,22 @@ context and is not needed until the unit that builds it.
 
 ## Step 3 — Gaps
 
-Build one list, in French, six sections:
+Before turning anything into a question, `grep` `.build/requirements.md` for
+the component or page: the answer is often already a REQ.
+
+First, a separate list **« Déjà tranché par le CDC »**: the points the CDC
+settles itself (« la maquette n'est pas correcte », a section that overrides
+a frame). Each one quotes the CDC with its section, and is recorded as
+decided. Never restate the CDC's claim about the mockup as a verified fact,
+and never mix these items with the ones that need an arbitration.
+
+Then the gaps that need one, in French, seven sections:
 
 1. **Exigence sans maquette** — a REQ with no frame (a listing page, a form,
    an error state).
 2. **Maquette sans exigence** — a frame or component no REQ asks for.
 3. **Contradictions CDC / Figma** — the CDC wins; each one written as a
-   proposed decision. The CDC sometimes says so itself (« la maquette n'est
-   pas correcte »): record it as decided.
+   proposed decision, with the CDC quote and the node id.
 4. **Incohérences internes au CDC** — a block allowed somewhere but never
    specified, two sections that disagree, a field listed in one table only.
 5. **Créa absente** — breakpoints, states or pages not drawn. This is normal,
@@ -166,7 +216,9 @@ Build one list, in French, six sections:
    on the foundations (grid, components, tokens). Listed only so the plan
    knows; a question only when the CDC imposes a behaviour the simple version
    would miss.
-6. **Navigateurs cibles** — Tailwind 4 targets Safari 16.4+, Chrome 111+ and
+6. **Composants orphelins** — the style guide components flagged « non
+   utilisé, non demandé » in Step 2, proposed for removal.
+7. **Navigateurs cibles** — Tailwind 4 targets Safari 16.4+, Chrome 111+ and
    Firefox 128+ (check the installed version's documentation). A CDC that
    requires older browsers is a blocking question: accept the baseline,
    or add fallbacks for the features that break.
@@ -174,12 +226,18 @@ Build one list, in French, six sections:
 ## Step 4 — Every blocking question, in one message
 
 Ask once, numbered, each with the default you would apply. Skip what the CDC
-settles, stating the answer and its source.
+settles, stating the answer and its source. Write the questions to the
+`Open questions` section of `.build/state.md` as soon as they are asked.
 
 1. **Multisite?** One codebase and one theme for several sites, each with its
-   own database? If yes: the sites (directory, local domain), what differs per
-   site (config kept per site through `config_ignore`, content), and the site
-   the build is driven on. See `../drupal-build/references/multisite.md`.
+   own database? Ask the follow-ups **in the same question** to avoid a
+   second round: the sites (directory, local domain), which ones are real
+   and which are **test sites** (verified by every unit, no real content),
+   the site the build is driven on, what differs per site (config kept per
+   site through `config_ignore`, content), and whether the palette is per
+   site. When the starter is not ready for it yet (« le multisite arrive sur
+   develop bientôt »), record it as a `Pending` item that blocks the
+   foundations. See `../drupal-build/references/multisite.md`.
 2. **Client-customisable colours?** Can the client change the site's colours
    (per site in a multisite, or globally) and/or pick colours per block while
    editing? If yes: the palette model of `design-tokens.md` (taxonomy terms
@@ -192,8 +250,9 @@ settles, stating the answer and its source.
    be loosened later, never tightened. Ask only whether this project is an
    exception.
 4. **Source site?** The build starts from the starter, always. Is there an
-   existing site whose blocks can be reused to save time? If yes: its local
-   path, and which units reuse which of its bundles.
+   existing site whose blocks can be reused to save time? When the CDC names
+   it (« créé à partir du site X »), do not ask whether: ask only its local
+   path. Which units reuse which of its bundles is settled in Step 5.
 5. **Breakpoints.** Those of the CDC; otherwise mobile, tablet and desktop,
    with widths taken from the Figma frames (and the Tailwind breakpoint each
    one maps to).
@@ -211,15 +270,22 @@ settles, stating the answer and its source.
    tested locally.
 10. Editorial roles and their rights, if the CDC is vague.
 
-Record every answer as an entry in `.build/decisions.md` (D-001 onwards). A
-question left unanswered blocks only the units that depend on it: say which.
+Record every answer as an entry in `.build/decisions.md` (D-001 onwards) and
+empty `Open questions`. A question left unanswered becomes a `Pending` item
+(`P-1 … → blocks <units>`) in `state.md`: it blocks only those units.
 
 ## Step 5 — The build plan
 
 Inventory the **starter's existing bundles** first (`ls config/sync | grep -E '^(node.type|paragraphs.paragraphs_type|taxonomy.vocabulary|media.type|user.role)'`)
-and, when there is a source site, its matching bundles: for each, *reuse as
-is*, *adapt* (starting point of the unit), *port from the source site*, or
-*remove*.
+and, when there is a source site, its matching bundles, **side by side** —
+the starter often already holds bundles close to the source site's:
+
+| CDC block | Starter bundle | Source site bundle | Verdict | Unit |
+|---|---|---|---|---|
+| Chiffres clés | `key_figures` | `key_numbers` | adapt the starter's | paragraph-key-figures |
+
+Verdicts: *reuse as is*, *adapt* (starting point of the unit), *port from the
+source site*, *remove*.
 
 Present the plan in French, for validation:
 
@@ -263,17 +329,20 @@ Present the plan in French, for validation:
   most units.
 - **Branch names** — `build/<id>`.
 - **Suggested mode** per unit — `auto` for simple units (one paragraph type
-  or taxonomy, no PHP logic, no open gap), `review` otherwise.
+  or taxonomy, no PHP logic, no open gap), `step` for the foundations and
+  other large units, `review` otherwise.
+- **Foundations split** — offer up front to deliver the foundations as
+  stacked sub-units, one MR each (`foundations-tokens` → `-components` →
+  `-styleguide` → `-tests`): smaller reviews. The delivery steps (test-all,
+  RGAA) only fit the last one.
+- **Units with no REQ of their own** (a media type, the editor
+  configuration, a card shared by listings) are legitimate: their brief
+  lists the units and REQs they serve.
 
 Every REQ is assigned to exactly one unit; a REQ left without a unit is a
 plan error. Iterate with the human until the plan is validated.
 
-## Step 6 — Write `.build/`
-
-```bash
-mkdir -p .build/units .build/screenshots
-grep -qxF '/.build/' .git/info/exclude || echo '/.build/' >> .git/info/exclude
-```
+## Step 6 — Complete `.build/`
 
 - `state.md` — the header (CDC, Figma URL and file key, style guide node,
   breakpoints, languages, sites, palette, source site, `gitlab:` from
@@ -288,7 +357,8 @@ grep -qxF '/.build/' .git/info/exclude || echo '/.build/' >> .git/info/exclude
   component names). `units/foundations.md` lists every style guide node.
 
 Check: `wc -l .build/state.md` (100 lines max), every REQ has a unit, every
-unit file has at least one node row or a gap explaining why not.
+unit file has at least one node row per drawn breakpoint or a gap explaining
+why not.
 
 After this step **nobody reads the full CDC again**. A later doubt is settled
 by opening the one section cited in `requirements.md`.

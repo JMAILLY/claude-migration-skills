@@ -110,18 +110,52 @@ def middle(node):
     return node['y'] + node['height'] / 2
 
 
-def texts(nodes, tolerance=12):
-    out = [f"# Texts under {nodes[0]['name']} ({nodes[0]['id']}), in reading order", '']
-    items = sorted((n for n in nodes if n['type'] == 'text' and n['name'].strip()), key=lambda n: (middle(n), n['x']))
+def rows_of(items, tolerance):
     rows = []
-    for item in items:
+    for item in sorted(items, key=lambda n: (middle(n), n['x'])):
         if rows and abs(middle(item) - middle(rows[-1][0])) <= tolerance:
             rows[-1].append(item)
         else:
             rows.append([item])
-    for row in rows:
-        cells = [' '.join(n['name'].split()) for n in sorted(row, key=lambda n: n['x'])]
-        out.append('- ' + ' | '.join(cells))
+    return [' | '.join(' '.join(n['name'].split()) for n in sorted(row, key=lambda n: n['x'])) for row in rows]
+
+
+def children(nodes):
+    root = nodes[0]
+    groups, current = [], None
+    for node in nodes[1:]:
+        if node['depth'] == root['depth'] + 1:
+            current = (node, [])
+            groups.append(current)
+        elif current:
+            current[1].append(node)
+    return groups
+
+
+def texts(nodes, tolerance=12):
+    out = [f"# Texts under {nodes[0]['name']} ({nodes[0]['id']}), in reading order", '']
+    groups = [(child, [n for n in [child] + rest if n['type'] == 'text' and n['name'].strip()])
+              for child, rest in children(nodes)]
+    groups = [(child, items) for child, items in groups if items]
+    for child, items in sorted(groups, key=lambda g: (g[0]['y'], g[0]['x'])):
+        if len(groups) > 1:
+            out += ['', f"## {child['type']} `{child['id']}` {child['name']}"]
+        out += ['- ' + row for row in rows_of(items, tolerance)]
+    return '\n'.join(out) + '\n'
+
+
+def blocks(nodes, first=4):
+    root = nodes[0]
+    out = [f"# Blocks of {root['name']} ({root['id']}), top to bottom", '',
+           '| y | id | name | size | instances | first texts |', '|---|---|---|---|---|---|']
+    for child, rest in sorted(children(nodes), key=lambda g: (g[0]['y'], g[0]['x'])):
+        found = [n for n in rest if n['type'] == 'text' and n['name'].strip()]
+        found.sort(key=lambda n: (n['y'], n['x']))
+        words = ' / '.join(' '.join(n['name'].split())[:40] for n in found[:first]).replace('|', '/')
+        names = collections.Counter(n['name'] for n in rest if n['type'] == 'instance')
+        used = ', '.join(f'{k} x{v}' if v > 1 else k for k, v in names.most_common(3)).replace('|', '/')
+        out.append(f"| {round(child['y'] - root['y'])} | `{child['id']}` | {child['name']} "
+                   f"| {child['width']}x{child['height']} | {used} | {words} |")
     return '\n'.join(out) + '\n'
 
 
@@ -130,7 +164,8 @@ def main():
     parser.add_argument('dump', help='get_metadata output saved to a file (JSON array or raw XML)')
     parser.add_argument('--node', help='restrict to the subtree of this node id')
     parser.add_argument('--depth', type=int, default=3, help='tree depth below the root (default 3)')
-    parser.add_argument('--texts', action='store_true', help='list the text nodes instead of the tree')
+    parser.add_argument('--texts', action='store_true', help='text nodes in reading order, grouped by direct child')
+    parser.add_argument('--blocks', action='store_true', help='direct children of the node: y offset, size, instances, first texts')
     parser.add_argument('--out', help='write to this file instead of stdout')
     args = parser.parse_args()
 
@@ -139,7 +174,12 @@ def main():
         sys.exit('No node found in the dump.')
     if args.node:
         nodes = subtree(nodes, args.node)
-    result = texts(nodes) if args.texts else inventory(nodes, args.depth)
+    if args.blocks:
+        result = blocks(nodes)
+    elif args.texts:
+        result = texts(nodes)
+    else:
+        result = inventory(nodes, args.depth)
     if args.out:
         open(args.out, 'w', encoding='utf-8').write(result)
         print(f'{args.out}: {len(result.splitlines())} lines')
