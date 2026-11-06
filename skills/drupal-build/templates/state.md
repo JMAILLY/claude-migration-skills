@@ -11,6 +11,14 @@ integration: develop
 plan: draft
 gitlab: <namespace/project>
 
+## Open questions (intake only, until decisions.md exists)
+
+- Q1 … (asked YYYY-MM-DD, waiting)
+
+## Pending (block only their units)
+
+- P-1 <question> → blocks <unit>, <unit> (or: non bloquant, D-xxx)
+
 ## Milestones (/gm:archi-c4)
 
 - [ ] foundations
@@ -26,7 +34,7 @@ gitlab: <namespace/project>
 
 | id | category | depends | status | branch | MR | mode |
 |---|---|---|---|---|---|---|
-| foundations | foundations | - | planned | build/foundations | - | review |
+| foundations | foundations | - | planned | build/foundations | - | step |
 | header | header | foundations | planned | build/header | - | review |
 | footer | footer | foundations | planned | build/footer | - | review |
 | recurring-palette | recurring | foundations | planned | build/recurring-palette | - | review |

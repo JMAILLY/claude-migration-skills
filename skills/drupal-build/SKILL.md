@@ -83,7 +83,7 @@ equivalent instead of inventing the starter's API.
 | `gm_site` services (routes, settings, SEO) | `ls web/modules/custom/gm_site/src` | a site module of the project |
 | Theme hooks split in `includes/<entity>.inc` | `ls web/themes/custom/*/includes` | the `.theme` file |
 | Tailwind 4, CSS-first `@theme` | `grep tailwindcss package.json` | stop: the foundations reference assumes v4 |
-| Config split `dev` enabled when `APP_ENV=local` | `grep -n split web/sites/default/settings.php` | stop and ask: the demo module's first lock depends on it |
+| Config split `dev` enabled when `APP_ENV=local` | `grep -n -B2 -A2 'config_split' web/sites/default/settings*.php` (print the condition, not just the match) | stop and ask: the demo module's first lock depends on it |
 | `gm:drupal`, `gm:review`, `gm:merge-request` skills | the skill list | built-in review checklist; plain `git` + `glab` for the MR |
 
 ## Step 0 — Where are we?
@@ -100,11 +100,25 @@ glab mr list --all --source-branch build/<unit> 2>/dev/null   # per unit not yet
 
 | Evidence | Status |
 |---|---|
-| No branch | `planned` (or `ready` when every dependency is `merged` or `review`) |
+| No branch, a `Pending` item of `state.md` blocks it | `blocked` |
+| No branch | `planned` (or `ready` when every dependency is `merged`, `review` or `pushed`) |
+| Branch pushed and up to date, no MR, `state.md` says « MR on request » | `pushed` (the human chose to wait; counts as `review` for dependants) |
 | Branch exists, no MR | `in-progress` |
 | Draft or open MR | `review` |
 | MR merged | `merged` |
 | MR closed without merge | ask the human: abandoned or to redo |
+
+When `glab` cannot run on the host, say so, keep the MR statuses of
+`state.md` as they are and mark them « non revérifié » in the progress view.
+
+Before routing, look at the working tree:
+
+- **Current branch is not the integration branch** and no unit is
+  interrupted on it: harmless for the intake, but say that any new unit
+  branches from an up-to-date `develop` (or its parent's branch when stacked).
+- **Uncommitted changes that belong to no unit** (on `develop` or elsewhere):
+  never stash or fold them silently. Show `git status --short` and ask: commit
+  them apart, fold them into the next unit's opening commit, or leave them.
 
 Write the recomputed statuses and MR numbers back to `state.md`, then route:
 
@@ -114,7 +128,7 @@ Write the recomputed statuses and MR numbers back to `state.md`, then route:
 | `plan:` is `draft` in `state.md` | invoke **`drupal-build-intake`** (resumes at the plan) |
 | A unit is `in-progress` with uncommitted changes or unpushed commits | that unit was interrupted: resume it with its sub-skill |
 | `foundations` is not `review` or `merged` | invoke **`drupal-build-foundations`** |
-| A stacked unit whose parent MR was merged | rebase it on `develop` (`git rebase --onto origin/develop <parent-branch>`), retarget its MR (`glab mr update <iid> --target-branch develop`), drop the « Dépend de » line, re-run `make test-all` |
+| A stacked unit whose parent MR was merged | rebase it on `develop` (`git rebase --onto origin/develop <parent-branch>`), retarget its MR unless GitLab already did it (it does when the parent's source branch is deleted on merge: check the target first), drop the « Dépend de » line, re-run `make test-all` |
 | A milestone just closed (foundations merged, or the last unit of a category merged) and its `/gm:archi-c4` line in `state.md` is unchecked | propose `/gm:archi-c4` as this conversation's work (documentation only, never read during a unit) |
 | Units are `ready` | show progress, offer the choice (below) |
 | Every unit `merged` | the build is done: final `/gm:archi-c4`, summary, delete nothing |
@@ -134,11 +148,33 @@ Disponibles
 - Pages de contenu : content-news (empilée sur !14 taxonomy-themes, non fusionnée)
 ```
 
-Ask which unit to build (`AskUserQuestion` when the list fits). Offer the
-**auto mode** for the chosen unit when it is simple: one paragraph type or
-taxonomy, no PHP logic, no open gap in its brief, no new dependency. Auto mode
-skips the plan validation pause (unit Step 4); everything else still runs.
-Record the mode in `state.md`, then invoke **`drupal-build-unit`**.
+Also offer « afficher le plan complet »: the `state.md` table is not readable
+as a plan. Render it in French by **dependency waves** (wave 1 = no
+dependency, wave n = depends only on earlier waves), one line per unit: id,
+one-line scope from its brief, dependencies, status, mode.
+
+Ask which unit to build (`AskUserQuestion` when the list fits). Once chosen,
+**print the unit's scope from its brief as a numbered French list** (so the
+human can reference items: « retire le 4 »), with its open gaps, before
+invoking the sub-skill.
+
+Offer a mode for the chosen unit:
+
+| Mode | When | Effect |
+|---|---|---|
+| `auto` | simple unit: one paragraph type or taxonomy, no PHP logic, no open gap in its brief, no new dependency | skips the plan validation pause (unit Step 4); everything else still runs |
+| `review` | default | pause at the plan validation |
+| `step` | large or foundational unit, or on request | pause before **every** step of the sub-skill, showing what the next step will do |
+
+Record the mode in `state.md`, then invoke the sub-skill.
+
+### Pending items
+
+`state.md` has a `Pending` section: open questions that block only some
+units (P-1, P-2…). A unit they block is `blocked`, never offered. When the
+human gives an interim answer (« garde la police actuelle pour l'instant »),
+downgrade it: record a decision in `decisions.md`, rewrite the pending line
+as « non bloquant (D-xxx) », update the gap in the affected briefs, recompute.
 
 ## Stacking
 
@@ -178,6 +214,12 @@ from that MR's branch, its MR targets that branch, and its description says
 - Human deliverables (questions, plan, UAT, MR description) in French.
 - Never merge a MR yourself. Never create content on preprod or prod: the
   client fills them. The UAT runs locally.
+- **Push and MR are their own explicit question**, never bundled into
+  another choice or mentioned in an option's description: a human who picks
+  « continuer » has not agreed to a push. When the human prefers to wait,
+  record « MR on request » for the unit in `state.md` (status `pushed`).
+- `glab api` cannot send multipart: upload screenshots to a MR with `curl`
+  and the token from `glab config get token --host <host>`.
 - No chronogram, no tracker ticket: this is a build project.
 - Before delivering any unit, `make cim` then `make test-all`: the unit must
   not break the units already merged (visual regression of every demo page

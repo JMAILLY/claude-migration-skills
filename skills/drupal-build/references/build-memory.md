@@ -48,11 +48,17 @@ Never `cat` the whole `requirements.md` or `decisions.md` during a unit.
 - The header fields are written by phase 0 and change only through a decision.
 - `plan:` is `draft` until the human validates the plan, then
   `validated YYYY-MM-DD`.
-- One table row per unit. `status` is one of `planned`, `ready`,
-  `in-progress`, `review`, `merged`, `blocked`; Step 0 of `drupal-build`
-  recomputes it from git and `glab` and rewrites the row.
+- One table row per unit. `status` is one of `planned`, `ready`, `blocked`,
+  `in-progress`, `pushed`, `review`, `merged`; Step 0 of `drupal-build`
+  recomputes it from git, `glab` and the `Pending` section and rewrites the row.
+- `## Open questions`: the intake's questions waiting for an answer, written
+  as soon as they are asked (before `decisions.md` exists), so a resumed
+  intake finds them. Emptied once answered into decisions.
+- `## Pending`: questions that block only some units (`P-1 … → blocks
+  <units>`). An interim answer downgrades it to « non bloquant (D-xxx) ».
 - `depends` lists unit ids, comma-separated; `-` for none (only `foundations`).
-- `mode` is `review` (default: the plan is validated before coding) or `auto`.
+- `mode` is `review` (default: the plan is validated before coding), `auto`
+  (no plan pause) or `step` (a pause before every step of the sub-skill).
 - The milestones list carries one checkbox per `/gm:archi-c4` regeneration:
   after foundations, then after each category.
 - Over 100 lines means something that belongs elsewhere landed here: move it
@@ -65,11 +71,15 @@ Never `cat` the whole `requirements.md` or `decisions.md` during a unit.
 - Text **condensed** to one line: what must be true, with the figures (page
   size, limits, formats). The CDC wording is not copied.
 - `Source` points into the CDC (`p. 14 §3.2`) so a doubt is settled by opening
-  that page only.
+  that page only. An MHTML/Confluence export has no pages: `§3.2` only.
 - `Type`: `functional`, `editorial`, `technical`, `a11y`, `performance`,
   `seo`, `legal`.
 - `Unit`: exactly one unit id. A requirement shared by several units goes to
-  `foundations` or `recurring-*`, and the others reference it.
+  `foundations`, `recurring-*` or the shared `media-*` unit that implements
+  it, and the others reference it.
+- A unit may own **no** REQ of its own (a media type, an editor feature, a
+  card shared by listings): its brief then says which units need it and
+  which of their REQs it serves.
 
 ## `units/<id>.md`
 
