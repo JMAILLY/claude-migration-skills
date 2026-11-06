@@ -91,7 +91,7 @@ export type Shot = {
 };
 
 const unit = process.env.UNIT!;
-const { shots } = require(`./units/${unit}`) as { shots: Shot[] };
+const { shots } = (await import(`./units/${unit}.ts`)) as { shots: Shot[] };
 
 for (const shot of shots) {
   test(shot.name, async ({ page }, info) => {

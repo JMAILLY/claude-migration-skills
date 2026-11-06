@@ -18,7 +18,7 @@
 | Kernel | PHPUnit `KernelTestBase` | Drupal wiring: services, hooks, preprocess with logic, access rules, the `gm_demo` commands (idempotent generate, exact purge). | As soon as a unit adds a hook, a service or an access rule |
 | E2E | Playwright | Per demo page and breakpoint: status 200, no console error, key elements present, interactions (mobile menu, accordion, carousel, form), keyboard navigation. | Always, at least one test per unit |
 | Automatic a11y | `@axe-core/playwright` | Automatically detectable WCAG rules on every demo page. Complements `drupal-rgaa`, never replaces it. | Always |
-| Visual regression | Playwright `toHaveScreenshot` | Reference captures per demo page, per breakpoint, and of `/styleguide`. Protects the delivered units. | Always |
+| Visual regression | Playwright `toHaveScreenshot` | Reference captures per demo page, per breakpoint, and of `/styleguide`. Protects the delivered units. | Spec always; references only once the PO/client accepted the unit (below) |
 | Manual UAT | MR description | Mockup fidelity, back-office editing, UX feel. | Always |
 
 **No test for pure config** (a field exists, a paragraph type exists):
@@ -161,8 +161,8 @@ E2E runs on Chromium only; other browsers are part of the manual UAT.
 ```make
 DC_E2E = $(DC) --profile e2e run --rm playwright
 
-test: ## Lance PHPUnit, unit + kernel (usage: make test [c='--testsuite unit'])
-	$(EXEC_PHP) vendor/bin/phpunit -c phpunit.xml $(c)
+test: ## Lance PHPUnit, unit + kernel, sans Xdebug (usage: make test [c='--testsuite unit'])
+	$(DC) exec -e XDEBUG_MODE=off --user www-data $(PHP) vendor/bin/phpunit -c phpunit.xml $(c)
 
 test-e2e: ## Lance Playwright : E2E, axe, régression visuelle (usage: make test-e2e [c='tests/e2e/header.spec.ts'])
 	$(DC_E2E) npx playwright test $(c)
@@ -182,10 +182,20 @@ screenshots: ## Captures de MR d'une unité dans .build/screenshots/ (usage: mak
 Add the names to `.PHONY`. E2E tests use the demo data set: `make demo`
 runs before `make test-e2e` on a fresh database.
 
+`XDEBUG_MODE=off` is required, not a speed-up: in `develop` mode Xdebug keeps
+the frames of caught exceptions alive, a database transaction outlives its
+kernel test, and PHPUnit dies at shutdown (« StatementPrefetchIterator …
+null given »).
+
 ### CI
 
-PHPUnit (unit + kernel) joins the pipeline; E2E, axe, visual regression and
-captures stay **local** (record it in `decisions.md`). Follow the existing
+First read `.gitlab-ci.yml`: when the pipeline only runs on release or
+production branches (no MR, no integration-branch pipeline), a PHPUnit job
+would never run where it matters. Record that in `decisions.md` and skip the
+job; the local `make test-all` before each delivery is the gate.
+
+Otherwise PHPUnit (unit + kernel) joins the pipeline; E2E, axe, visual
+regression and captures stay **local** (record it in `decisions.md`). Follow the existing
 pipeline's style (`only:` or `rules:`) and image; the job needs the dev
 dependencies:
 
@@ -214,11 +224,15 @@ needs, in `tests/e2e/helpers.ts`:
 export async function isolate(page: Page, allow: string[] = []): Promise<void> {
   await page.route(/^https?:\/\//, (route) => {
     const host = new URL(route.request().url()).hostname;
-    const local = host.endsWith('.dev.localhost');
+    const local = host.endsWith('.dev.localhost') && !host.endsWith('-vite.dev.localhost');
     return local || allow.includes(host) ? route.continue() : route.abort('blockedbyclient');
   });
 }
 ```
+
+The Vite dev server host is blocked too: when `APP_ENV=local` the theme
+attaches the HMR client, which logs a CORS error whenever `npm-dev` is not
+running. Tests run on the built assets (`make npm-build`).
 
 Call it before `page.goto` in `open()`; filter the resulting
 `net::ERR_BLOCKED_BY_CLIENT` lines out of the console errors. A test that
@@ -235,6 +249,12 @@ site × breakpoint, references per site, `make test-all` on every site.
 
 - One spec per unit: `tests/e2e/<unit-id>.spec.ts`; the reference captures
   live next to it (`<unit-id>.spec.ts-snapshots/`) and are versioned.
+- **References come after acceptance.** A reference frozen before the PO or
+  client accepted the unit freezes a rendering that may still change. Each
+  spec carries `const ACCEPTED = false;` and its visual tests start with
+  `test.skip(!ACCEPTED, 'awaiting PO/client acceptance')`. Once accepted, a
+  follow-up commit flips the flag and adds the references
+  (`make test-e2e-update c='<spec>'`). Unit delivery does not wait for it.
 - Reference captures are created and updated **only in the `playwright`
   container** (`make test-e2e-update`), and only for an intended change: the
   commit body says « écart voulu » and why.
@@ -268,9 +288,48 @@ export async function expectAccessible(page: Page, selector?: string): Promise<v
   let builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']);
   if (selector) builder = builder.include(selector);
   const { violations } = await builder.analyze();
-  expect(violations.map((v) => `${v.id} (${v.nodes.length}): ${v.help}`)).toEqual([]);
+  expect(violations.map((v) => `${v.id} (${v.nodes.length}): ${v.help} — ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)).toEqual([]);
+}
+
+export async function tabThrough(page: Page, container: string, maxStops = 400): Promise<{ stops: number; missing: string[] }> {
+  await page.locator('body').focus();
+  const missing: string[] = [];
+  const seen = new Set<string>();
+  let stops = 0;
+  for (let i = 0; i < maxStops; i++) {
+    await page.keyboard.press('Tab');
+    const state = await page.evaluate((selector) => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el || el === document.body) return null;
+      const id = `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}[${(el.getAttribute('aria-label') ?? el.textContent ?? '').trim().slice(0, 30)}]@${Math.round(el.getBoundingClientRect().top + window.scrollY)}`;
+      const style = getComputedStyle(el);
+      const visible = (style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0) || style.boxShadow !== 'none';
+      return { id, inside: !!el.closest(selector), visible };
+    }, container);
+    if (!state || seen.has(state.id)) break;
+    seen.add(state.id);
+    if (!state.inside) continue;
+    stops++;
+    if (!state.visible) missing.push(state.id);
+  }
+  return { stops, missing };
+}
+
+export async function hideFloating(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    for (const el of document.querySelectorAll<HTMLElement>('body *')) {
+      if (['fixed', 'sticky'].includes(getComputedStyle(el).position)) el.style.visibility = 'hidden';
+    }
+  });
 }
 ```
+
+- `tabThrough` returns the number of stops inside the container: always
+  assert a **minimum** (`expect(stops).toBeGreaterThan(n)`), otherwise a
+  broken Tab loop that stops at once passes silently.
+- `hideFloating` before any **element** capture: a sticky header or a
+  floating editor toolbar otherwise lands in the middle of the image once
+  the page scrolls to the element.
 
 ## Templates per unit category
 
@@ -278,8 +337,9 @@ Every spec has the same skeleton; the category adds its interactions.
 
 ```ts
 import { test, expect } from '@playwright/test';
-import { open, expectAccessible } from './helpers';
+import { open, expectAccessible, hideFloating } from './helpers';
 
+const ACCEPTED = false;
 const PAGES = ['/demo/paragraph-faq', '/demo/paragraph-faq/long'];
 
 for (const path of PAGES) {
@@ -296,7 +356,9 @@ for (const path of PAGES) {
     });
 
     test('matches the reference', async ({ page }) => {
+      test.skip(!ACCEPTED, 'awaiting PO/client acceptance');
       await open(page, path);
+      await hideFloating(page);
       await expect(page.locator('main')).toHaveScreenshot('main.png');
     });
   });
@@ -305,7 +367,7 @@ for (const path of PAGES) {
 
 | Category | Interactions to cover |
 |---|---|
-| foundations | `/styleguide` 200 and axe; one capture per section (`#colors`, `#typography`, `#buttons`, `#forms`…); Tab reaches every interactive component with a visible focus (non-zero outline or box-shadow on `:focus-visible`). |
+| foundations | `/styleguide` 200 and axe; one capture per section (`#colors`, `#typography`, `#buttons`, `#forms`…); `tabThrough` reaches at least the expected number of interactive components, each with a visible focus. Demo node pages have no `h1` until `content-page`: check their first `h2` instead. |
 | header | Skip link is the first Tab stop and moves focus to `main`; main menu reachable by keyboard; mobile menu opens and closes (button, `Escape`), `aria-expanded` toggles, focus stays inside while open and returns to the button; search submits; language switcher links to the translation. |
 | footer | Menus and social links have accessible names; external links announced; legal links resolve (200); the consent link reopens the consent tool. |
 | media | Each media type renders on its demo page; document size and format shown; audio player operable by keyboard; remote video shows its consent placeholder (external host blocked). |

@@ -26,14 +26,16 @@ All of them ship in the foundations MR. Verify each one there.
    partial_list:
      - minifyhtml.config
      - user.role.anonymous
+     - user.role.authenticated
    ```
 
    Demo **config entities** (a webform an editor would build) carry the
    `gm_demo_` id prefix and are listed in `complete_list`, so `make cex`
    writes them to `config/dev/`, never to `config/sync`.
 
-   `user.role.anonymous` is a **partial** split: the demo permission granted to
-   anonymous lands in a patch under `config/dev/`, and the role in
+   `user.role.anonymous` and `user.role.authenticated` are **partial**
+   splits (the second for the logged-in demo accounts): the demo permission
+   granted to them lands in a patch under `config/dev/`, and the role in
    `config/sync` stays untouched. Never let a role depend on `gm_demo` in
    `config/sync`: config split would move the whole role out of sync.
 
@@ -260,6 +262,8 @@ declare(strict_types=1);
 
 namespace Drupal\gm_demo;
 
+use Drupal\Component\Serialization\Yaml;
+use Drupal\Core\Config\Entity\ConfigEntityInterface;
 use Drupal\Core\Entity\ContentEntityInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Extension\ModuleExtensionList;
@@ -268,7 +272,6 @@ use Drupal\Core\File\FileExists;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\KeyValueStore\KeyValueFactoryInterface;
 use Drupal\Core\KeyValueStore\KeyValueStoreInterface;
-use Drupal\Core\Serialization\Yaml;
 
 /**
  * Generates and purges the demo entities described by the unit fixtures.
@@ -387,6 +390,7 @@ final class DemoGenerator {
     $type = self::TYPES[$item['type']] ?? $item['type'];
     $storage = $this->entityTypeManager->getStorage($type);
     $entry = $this->registry->get($item['key']);
+    /** @var \Drupal\Core\Entity\ContentEntityInterface|\Drupal\Core\Config\Entity\ConfigEntityInterface|null $entity */
     $entity = $entry ? $storage->load($entry['id']) : NULL;
 
     $values = $this->resolve($item['values'] ?? []);
@@ -407,18 +411,23 @@ final class DemoGenerator {
     else {
       $entity = $storage->create($values);
     }
+    if ($entity instanceof ConfigEntityInterface && !empty($item['translations'])) {
+      throw new \InvalidArgumentException("Fixture key {$item['key']}: config entities have no translations.");
+    }
 
-    foreach ($item['translations'] ?? [] as $langcode => $translated) {
-      $translated = $this->resolve($translated, $langcode);
-      if ($entity->hasTranslation($langcode)) {
-        $translation = $entity->getTranslation($langcode);
-        $stale = array_merge($stale, $this->paragraphs($translation, array_keys($translated)));
-        foreach ($translated as $field => $value) {
-          $translation->set($field, $value);
+    if ($entity instanceof ContentEntityInterface) {
+      foreach ($item['translations'] ?? [] as $langcode => $translated) {
+        $translated = $this->resolve($translated, $langcode);
+        if ($entity->hasTranslation($langcode)) {
+          $translation = $entity->getTranslation($langcode);
+          $stale = array_merge($stale, $this->paragraphs($translation, array_keys($translated)));
+          foreach ($translated as $field => $value) {
+            $translation->set($field, $value);
+          }
         }
-      }
-      else {
-        $entity->addTranslation($langcode, $translated);
+        else {
+          $entity->addTranslation($langcode, $translated);
+        }
       }
     }
 
@@ -454,6 +463,7 @@ final class DemoGenerator {
     if ($langcode) {
       $values['langcode'] = $langcode;
     }
+    /** @var \Drupal\paragraphs\ParagraphInterface $paragraph */
     $paragraph = $this->entityTypeManager->getStorage('paragraph')->create($values);
     $paragraph->save();
     return ['target_id' => $paragraph->id(), 'target_revision_id' => $paragraph->getRevisionId()];
@@ -582,13 +592,23 @@ namespace Drupal\gm_demo\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Extension\ThemeExtensionList;
+use Drupal\Core\Template\Attribute;
 use Drupal\gm_demo\DemoGenerator;
+use Drupal\gm_demo\Form\StyleguideForm;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
  * Local-only style guide and demo index.
  */
 final class StyleguideController extends ControllerBase {
+
+  /**
+   * Token namespaces, longest first: `font-weight` before `font`.
+   */
+  private const NAMESPACES = [
+    'font-weight', 'breakpoint', 'container', 'drop-shadow', 'inset-shadow', 'shadow',
+    'tracking', 'leading', 'spacing', 'aspect', 'radius', 'color', 'font', 'text', 'ease', 'blur',
+  ];
 
   public function __construct(
     private readonly DemoGenerator $generator,
@@ -603,15 +623,13 @@ final class StyleguideController extends ControllerBase {
    * Renders every token and every base component in every state.
    */
   public function styleguide(): array {
-    $css = file_get_contents(DRUPAL_ROOT . '/' . $this->themeList->getPath($this->config('system.theme')->get('default')) . '/src/css/theme.css');
-    preg_match_all('/--([a-z]+)-([a-z0-9-]+):\s*([^;]+);/', $css, $matches, PREG_SET_ORDER);
-    $tokens = [];
-    foreach ($matches as [, $namespace, $name, $value]) {
-      if ($name !== '*') {
-        $tokens[$namespace][$name] = trim($value);
-      }
-    }
-    return ['#theme' => 'gm_demo_styleguide', '#tokens' => $tokens, '#cache' => ['max-age' => 0]];
+    return [
+      '#theme' => 'gm_demo_styleguide',
+      '#tokens' => $this->tokens(),
+      '#pagers' => [$this->pager(1, 1, 5, 12), $this->pager(6, 4, 8, 12), $this->pager(12, 8, 12, 12)],
+      '#form' => $this->formBuilder()->getForm(StyleguideForm::class),
+      '#cache' => ['max-age' => 0],
+    ];
   }
 
   /**
@@ -630,7 +648,74 @@ final class StyleguideController extends ControllerBase {
     return ['#theme' => 'gm_demo_index', '#units' => $units, '#cache' => ['max-age' => 0]];
   }
 
+  /**
+   * Reads the tokens of the theme's @theme blocks, grouped by namespace.
+   */
+  private function tokens(): array {
+    $theme = $this->config('system.theme')->get('default');
+    $css = file_get_contents(DRUPAL_ROOT . '/' . $this->themeList->getPath($theme) . '/src/css/theme.css');
+    preg_match_all('/@theme(?:\s+inline)?\s*\{(.*?)\n\}/s', $css, $blocks);
+    preg_match_all('/--([a-z0-9-]+):\s*([^;]+);/', implode("\n", $blocks[1]), $matches, PREG_SET_ORDER);
+
+    $tokens = [];
+    foreach ($matches as [, $property, $value]) {
+      if (str_ends_with($property, '-*')) {
+        continue;
+      }
+      foreach (self::NAMESPACES as $namespace) {
+        if (str_starts_with($property, $namespace . '-')) {
+          $name = substr($property, strlen($namespace) + 1);
+          [$name, $modifier] = str_contains($name, '--') ? explode('--', $name, 2) : [$name, 'value'];
+          if ($namespace === 'text') {
+            $tokens['text'][$name][$modifier] = trim($value);
+          }
+          elseif ($modifier === 'value') {
+            $tokens[$namespace][$name] = trim($value);
+          }
+          break;
+        }
+      }
+    }
+    return $tokens;
+  }
+
+  /**
+   * Builds the variables of the theme's pager template.
+   *
+   * Built here: Twig's merge renumbers integer keys, the page numbers.
+   */
+  private function pager(int $current, int $first, int $last, int $total): array {
+    $link = fn (int $page): array => ['href' => '?page=' . ($page - 1), 'attributes' => new Attribute()];
+    $pages = [];
+    foreach (range($first, $last) as $page) {
+      $pages[$page] = $link($page);
+    }
+    return [
+      'current' => $current,
+      'items' => [
+        'pages' => $pages,
+        'previous' => $current > 1 ? $link($current - 1) : NULL,
+        'next' => $current < $total ? $link($current + 1) : NULL,
+      ],
+      'ellipses' => ['previous' => $first > 1, 'next' => $last < $total],
+    ];
+  }
+
 }
+```
+
+**Form states** come from a `FormBase` (`src/Form/StyleguideForm.php`)
+rendered by the theme's own form templates: one element per field type and
+state (default, required with help, filled, focus through `is-demo-focus`,
+disabled). The error state needs no submit — set it on the element:
+
+```php
+  private function withError(array $element, string $message): array {
+    $element['#errors'] = $message;
+    $element['#attributes']['aria-invalid'] = 'true';
+    $element['#attributes']['class'][] = 'error';
+    return $element;
+  }
 ```
 
 `templates/gm-demo-styleguide.html.twig` renders, section by section: colour
@@ -657,7 +742,14 @@ templates:
   class that reuses the `:focus-visible` styles) are shown directly. Hover and
   active are checked by hovering in Chrome.
 - Each section carries an `id` (`#colors`, `#buttons`, `#forms`…) so tests and
-  captures can target it.
+  captures can target it. The page has one `h1`; sections are `h2`.
+- Components that change on a dark background are shown a second time
+  inside an inverted container (`group/on-dark` plus the background role),
+  the context their templates react to.
+- Drupal's own outputs (status messages, pager, breadcrumb) are shown by
+  including the theme's overridden templates with sample variables
+  (`@frontend/base/system/status-messages.html.twig` with a `message_list`),
+  not by triggering them. The pager variables come from the controller.
 - Keep the template's own layout classes few, and add
   `@source "../../../../../modules/custom/gm_demo/templates";` to the theme's
   `tailwind.css` so they compile.
