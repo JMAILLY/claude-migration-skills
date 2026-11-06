@@ -43,11 +43,38 @@ git switch develop && git pull --ff-only && git switch -c build/foundations
 
 If the branch exists, switch to it and resume from its commits.
 
+**Split.** Unless the plan already decided it, offer to deliver this phase as
+stacked sub-units, one branch and one Draft MR each, in this order:
+`foundations-tokens` (Step 2) → `foundations-components` (Step 3) →
+`foundations-styleguide` (Step 4) → `foundations-tests` (Step 5) →
+`foundations-multisite` (Step 5b, when relevant). Each branches from the
+previous one and its MR targets it. Steps 7–8 (Contract, test-all, RGAA,
+review) run in full on the last one only; the others get a short MR and the
+checks that already exist.
+
+**Mode `step`** (the default here): before each step, show in French what it
+will do (files, tokens or components, commit) and wait for the go.
+
+`make cex` showing config drift that this phase did not cause (on a fresh
+`develop`): never commit it into a foundations commit. Revert it and tell the
+human.
+
 ## Step 1 — Read the style guide, by node id, one last time
 
 Load **`figma:figma-design-to-code`**. On each style guide node listed in
 `units/foundations.md`: `get_variable_defs`, then `get_design_context` and
 `get_screenshot` for the components. Never a whole page.
+
+- The documentation frames (`Espacement`, `Grille`) may carry no bound
+  variable: take the spacing scale from `get_variable_defs` on one page
+  frame (its node id is in the brief).
+- The fallbacks inside `get_design_context` (`var(--charte-2, #e94b64)`) are
+  not values: they are often stale. Only variables and decisions are.
+- Before asking about a component's colour, hover or size, `grep`
+  `requirements.md`: the CDC often settled it.
+- A style guide component **with no source** — no REQ and no instance in the
+  mockups — is not built: list it as « non utilisé, non demandé » and let the
+  human confirm (a style guide copied from another file carries leftovers).
 
 Present the **plan** in French, for validation, before coding: the token
 table (Figma name → `@theme` variable → value), the components and their
@@ -82,6 +109,16 @@ feat(build): design tokens, fonts and base styles
 
 ## Step 3 — Base components (commit 2)
 
+**Start with a cross-check table**, shown to the human before coding: every
+candidate component, its source (REQ ids, mockup instance count from the
+intake inventory), and the verdict *build*, *drop* or *move to unit X*. **A
+row without a source is not built**, Drupal's own UI included: the table
+below lists candidates, not obligations.
+
+| Component | Source | Verdict |
+|---|---|---|
+| Tag (removable) | no REQ, 0 instance | drop |
+
 Reusable Twig templates, following the theme's existing convention
 (`templates/components/*.html.twig` included with `only` in the starter; SDC
 if the project already uses them). Each takes documented variables, renders
@@ -89,14 +126,18 @@ semantic HTML, and has every state below. Drupal's own templates
 (form elements, breadcrumb, pager, status messages, local tasks) are
 overridden to call them, so core output and custom output look the same.
 
-| Component | States and variants |
+Components with variants that combine (`btn btn-primary btn-icon`) go in
+`@layer components` with plain class selectors. A `@utility` composed with
+`@apply` breaks as soon as two of them combine.
+
+| Candidate | States and variants |
 |---|---|
 | Button (`<button>` and link-styled-as-button) | every Figma variant; default, hover, active, **focus visible**, disabled; with icon before / after / icon only (accessible name required) |
 | Form fields | input (text, email, tel, number, search, password), textarea, select, checkbox, radio, file; label, help text, required marker, error, success, focus, disabled; fieldset/legend; error summary |
 | Breadcrumb | current page, truncation on mobile if drawn |
 | Pager | full and mini; current page announced |
 | Drupal messages | status, warning, error; `role` and live region |
-| Tabs | the UI tab component (arrow keys, `aria-selected`) and Drupal's local tasks |
+| Tabs | the UI tab component (arrow keys, `aria-selected`); Drupal's local tasks only if a mockup or the CDC draws them |
 | Tag | link and static variants |
 | Icons | SVG sprite through `vite-icon-sprite`; decorative (`aria-hidden`) vs meaningful (`role="img"` + label) |
 
@@ -107,6 +148,11 @@ so the build compiles them: icons into the sprite source folder
 `src/images/`. Kebab-case file names, `fill="currentColor"` on monochrome
 icons so CSS colours them, no fixed `width`/`height` left inside the sprite
 symbols. Never a PNG for a vector.
+
+**Preview before `/styleguide` exists** (split mode): render the components
+with a throwaway script (`make drush c='php:script <scratchpad>/preview.php'`
+writing an HTML page into `public://`), with a temporary `@source` on the
+scratchpad so Tailwind generates the classes it uses. Never commit either.
 
 **CKEditor content styles** (`src/css/ckeditor.css`): headings, paragraphs,
 lists, links, quotes, tables, images and captions, aligned on the same tokens,
@@ -120,11 +166,13 @@ feat(build): base components and editor styles
 
 Create the module exactly as `../drupal-build/references/demo-content.md`
 describes it, **with its locks**: dev split (`module` + partial
-`user.role.anonymous`), `deploy.php` exclusions, Make targets that refuse
-outside `APP_ENV=local`, Drush commands that refuse too.
+`user.role.anonymous` **and** `user.role.authenticated`, for the logged-in
+demo accounts), `deploy.php` exclusions, Make targets that refuse outside
+`APP_ENV=local`, Drush commands that refuse too.
 
 - `/styleguide`: every token and every component in every state, one `id`
-  per section.
+  per section, an `h1`, and an inverted (`on-dark`) context for the
+  components that have one.
 - `/styleguide/demo`: the demo index.
 - `fixtures/foundations.yml`: one account per editorial role of the CDC, and
   a basic page whose WYSIWYG text uses every editor style.
@@ -143,14 +191,18 @@ Exactly as `../drupal-build/references/testing.md` describes it:
 `phpunit.xml`, the `playwright` Compose service (profile `e2e`, pinned
 version, host resolver rule), `playwright.config.ts` with one project per
 breakpoint, `tests/e2e/helpers.ts`, the Make targets (`test`, `test-e2e`,
-`test-e2e-update`, `test-all`, `screenshots`), the PHPUnit CI job. First
-tests:
+`test-e2e-update`, `test-all`, `screenshots`), the PHPUnit CI job — only if
+the pipeline runs on MRs or on the integration branch (check
+`.gitlab-ci.yml` rules first; when it runs on release branches only, record
+the choice in `decisions.md` and skip it). First tests:
 
 - Kernel: `DemoGeneratorTest` (idempotent generation, exact purge).
 - E2E: `tests/e2e/foundations.spec.ts` — `/styleguide` and `/styleguide/demo`
-  return 200 without console error, axe clean, one reference capture per
-  style guide section and breakpoint, keyboard focus visible on every
-  interactive component.
+  return 200 without console error, axe clean, keyboard focus visible on
+  every interactive component, the visual regression spec ready with
+  `ACCEPTED = false` (references come after the PO's acceptance, see
+  `testing.md`). Demo node pages have no `h1` until `content-page`: no
+  heading check on them yet.
 
 Record « E2E et captures locales » in `decisions.md`.
 
@@ -163,7 +215,9 @@ build(test): phpunit, playwright, axe and visual regression tooling
 Following `../drupal-build/references/multisite.md`: the Makefile gets
 `SITE` / `SITES`, `--uri` on Drush and the `-all` targets; `sites.php` and one
 settings directory per site; `config_ignore` with the per-site config decided
-in the intake; `gm_demo` and the tests run on every site. Its own commit:
+in the intake; `gm_demo` and the tests run on every site. **Every declared
+site is installed** (database created, `site:install` or import): a test
+site that was declared but never installed answers 500. Its own commit:
 
 ```
 build(multisite): per-site targets, settings and config_ignore
@@ -209,5 +263,7 @@ the merge, in its own conversation.
 - [ ] Contrast report in the MR; no silent colour change.
 - [ ] `gm_demo` absent from `config/sync`, excluded from the deploy upload,
       refused by Make and Drush outside `local`.
-- [ ] `make test-all` green; references generated in the container.
+- [ ] `make test-all` green; references generated in the container, after
+      acceptance only.
+- [ ] No component without a source (REQ or mockup instance).
 - [ ] Contract of `units/foundations.md` complete.

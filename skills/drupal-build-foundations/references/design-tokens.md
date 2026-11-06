@@ -9,8 +9,10 @@ by `src/css/tailwind.css`, in the starter).
 
 ## Sources, in order
 
-1. `get_variable_defs` on the style guide nodes: Figma **variables** (with
-   their modes) and **styles** (text, colour, effect).
+1. `get_variable_defs` on the style guide nodes **and on one page frame**:
+   Figma **variables** (with their modes) and **styles** (text, colour,
+   effect). Some scales are only bound in the pages. The fallback values
+   inside `get_design_context` output are not values (often stale).
 2. `get_design_context` on each style guide component: the values the
    variables do not carry (paddings, border widths, transitions).
 3. The documentation frames (grid, breakpoints, colour and spacing tables),
@@ -46,6 +48,12 @@ here.
 | Blur | `--blur-*` | `blur-*`, `backdrop-blur-*` | `--blur-overlay: 8px;` |
 | Easing | `--ease-*` | `ease-*` (durations: the default `duration-*` scale) | `--ease-out-soft: cubic-bezier(.2,.8,.2,1);` |
 | Aspect ratios (image formats from the CDC) | `--aspect-*` | `aspect-*` | `--aspect-card: 4 / 3;` |
+
+**Named spacing tokens shadow the container sizes.** `--spacing-xl` also
+generates `w-xl` / `max-w-xl`, which then mean the spacing value, not the
+default `--container-xl`. With named spacing tokens (`xs`…`4xl`), write
+container widths as `max-w-(--container-content)` and never rely on the
+default `max-w-<size>` names.
 
 Reset a namespace before redefining it, so no default token leaks into the
 templates (`--color-*: initial;`, `--font-*: initial;`, `--breakpoint-*: initial;`).
